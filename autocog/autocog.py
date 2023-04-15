@@ -11,10 +11,6 @@ import tempfile
 import glob
 
 
-VERBOSE = True
-MAX_ATTEMPTS = 3
-
-
 def file_start(filename):
     return f"-- FILE_START: {filename}"
 
@@ -100,7 +96,9 @@ Given the predict.py file below, diagnose whether the error occurred because of 
     """
 
 
-def fix_predict_py_prompt(predict_contents, error):
+def fix_predict_py_prompt(predict_contents, error, repo_path):
+    python_file_list = "\n".join(find_python_files(repo_path, relative=True))
+
     return f"""
 Below is an example of a predict.py file:
 
@@ -108,11 +106,15 @@ Below is an example of a predict.py file:
 {PREDICT_PY_EXAMPLE}
 {file_end("example_predict.py")}
 
-Given the following Cog predict.py file and error message, fix the predict.py file so that the error goes away. Return a diff of predict.py that can be applied to predict.py with the patch tool. Only return the diff and no other text (no FILE_START prefix, etc.), neither before or after the diff.
+Given the following Cog predict.py file, list of python files in the repository, and error message, fix the predict.py file so that the error goes away. Return a diff of predict.py that can be applied to predict.py with the patch tool. Only return the diff and no other text (no FILE_START prefix, etc.), neither before or after the diff.
 
 {file_start("predict.py")}
 {predict_contents}
 {file_end("predict.py")}
+
+-- PYTHON_LISTING_START
+{python_file_list}
+-- PYTHON_LISTING_END
 
 -- ERROR_START
 {error}
@@ -128,10 +130,7 @@ Below is an example of a cog.yaml file:
 {COG_YAML_EXAMPLE}
 {file_end("example_cog.yaml")}
 
-Given the following cog.yaml file, predict.py file, and error message, fix the cog.yaml file so that the error goes away. Ensure that all Python packages must have pinned versions. Only return the cog.yaml contents and no other text (no FILE_START prefix, etc.), neither before or after the diff.
-
-Some common sources of errors include:
-* Wrong Python version (sometimes indicated by numpy failing to build)
+Given the following cog.yaml file, predict.py file, and error message, fix the cog.yaml file so that the error goes away. Ensure that all Python packages must have pinned versions. Explain what you think the error is, and wrap the cog.yaml contents in {file_start("cog.yaml")} and {file_end("cog.yaml")}. When applicable, update the short comments in cog.yaml that describe what parts of the code made you decide on the different parts of cog.yaml.
 
 {file_start("cog.yaml")}
 {cog_yaml_contents}
@@ -175,8 +174,7 @@ def order_paths(repo_path, *, attempt=0):
     if len(paths) == 0:
         raise ValueError(f"{repo_path} has no Python files")
 
-    if VERBOSE:
-        print("Ordering files based on importance...", file=sys.stderr)
+    print("Ordering files based on importance...", file=sys.stderr)
 
     readme_contents = ""
     readme_path = os.path.join(repo_path, "README.md")
@@ -195,7 +193,7 @@ def order_paths(repo_path, *, attempt=0):
 
 def files_prompt(repo_path, paths, max_length):
     prompt = f"""
-Given the files below, generate a predict.py and cog.yaml file. Ensure that all Python packages must have pinned versions. Wrap the contents of both files in the strings '{file_start("<filename>")}' and '{file_end("<filename>")}'. Don't output any other text before or after the files.
+Given the files below, generate a predict.py and cog.yaml file. In cog.yaml, ensure that all Python packages must have pinned versions. Also in cog.yaml, add short comments to describe what parts of the code made you decide on the different parts of cog.yaml. Wrap the contents of both files in the strings '{file_start("<filename>")}' and '{file_end("<filename>")}'. Don't output any other text before or after the files.
 
 """
     readme_path = os.path.join(repo_path, "README.md")
@@ -248,24 +246,23 @@ def generate_files(repo_path, paths, *, attempt=0):
     if file_end("cog.yaml") not in content or file_end("predict.py") not in content:
         if attempt == len(max_lengths):
             raise ValueError("Failed to generate a predict.py file")
-        if VERBOSE:
-            print(
-                f"Failed to complete the output, trying again (attempt {attempt + 1}/{len(max_lengths)})",
-                file=sys.stderr,
-            )
+        print(
+            f"Failed to complete the output, trying again (attempt {attempt + 1}/{len(max_lengths)})",
+            file=sys.stderr,
+        )
         generate_files(repo_path, paths, attempt=attempt + 1)
 
     files = {
-        "cog.yaml": file_from_openai_response(content, "cog.yaml"),
-        "predict.py": file_from_openai_response(content, "predict.py"),
+        "cog.yaml": file_from_gpt_response(content, "cog.yaml"),
+        "predict.py": file_from_gpt_response(content, "predict.py"),
     }
 
     return files
 
 
-def find_python_files(path):
+def find_python_files(repo_path, *, relative=False):
     python_files = []
-    queue = deque([path])
+    queue = deque([repo_path])
 
     while queue:
         current_path = queue.popleft()
@@ -273,11 +270,15 @@ def find_python_files(path):
 
         for entry in entries:
             full_entry_path = os.path.join(current_path, entry)
+            if relative:
+                path_to_return = os.path.relpath(full_entry_path, repo_path)
+            else:
+                path_to_return = full_entry_path
 
             if os.path.isfile(full_entry_path) and full_entry_path.endswith(".py"):
-                python_files.append(full_entry_path)
+                python_files.append(path_to_return)
             elif os.path.isdir(full_entry_path):
-                queue.append(full_entry_path)
+                queue.append(path_to_return)
 
     return python_files
 
@@ -308,12 +309,10 @@ def call_gpt(messages, *, temperature=0.5):
         if chunk_text == None:
             continue
         text += chunk_text
-        if VERBOSE:
-            sys.stderr.write(chunk_text)
-            sys.stderr.flush()
+        sys.stderr.write(chunk_text)
+        sys.stderr.flush()
 
-    if VERBOSE:
-        sys.stderr.write("\n")
+    sys.stderr.write("\n")
 
     return text
 
@@ -322,12 +321,15 @@ def generate_cog_predict_command(predict_contents):
     return call_gpt(cog_predict_prompt(predict_contents))
 
 
-def file_from_openai_response(content, filename):
+def file_from_gpt_response(content, filename):
     pattern = re.compile(
         rf"(?<={file_start(filename)})(?:\n```[a-z]*\n)?(.*?)(?:\n```\n)?(?={file_end(filename)})",
         re.MULTILINE | re.DOTALL,
     )
-    return pattern.search(content)[1].strip()
+    matches = pattern.search(content)
+    if not matches:
+        return None
+    return matches[1].strip()
 
 
 def write_files(repo_path, files):
@@ -338,8 +340,7 @@ def write_files(repo_path, files):
 
 
 def run_cog_predict(cog_predict_command, repo_path):
-    if VERBOSE:
-        print(cog_predict_command, file=sys.stderr)
+    print(cog_predict_command, file=sys.stderr)
 
     proc = subprocess.Popen(
         cog_predict_command, cwd=repo_path, stderr=subprocess.PIPE, shell=True
@@ -347,14 +348,12 @@ def run_cog_predict(cog_predict_command, repo_path):
     stderr = ""
     for line in proc.stderr:
         line = line.decode()
-        if VERBOSE:
-            sys.stderr.write(line)
+        sys.stderr.write(line)
         stderr += line
 
     proc.wait()
-    if proc.returncode == 0:
-        if not VERBOSE:
-            print(stderr.split("Running prediction...")[1].strip())
+    # cog predict will return 0 if the model fails internally
+    if proc.returncode == 0 and "Traceback (most recent call last)" not in stderr:
         return True, stderr
 
     return False, stderr
@@ -413,19 +412,20 @@ def parse_cog_predict_error(stderr, *, max_length=20000):
 
 
 def diagnose_error(predict_contents, cog_predict_command, error, *, attempt=0):
-    if VERBOSE:
-        print("Diagnosing source of error: ", file=sys.stderr)
+    print("Diagnosing source of error: ", file=sys.stderr)
 
     text = call_gpt(diagnose_error_prompt(predict_contents, cog_predict_command, error))
     if text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
         if attempt == 3:
             raise ValueError("Failed to diagnose error")
-        return diagnose_error(predict_contents, cog_predict_command, error, attempt=attempt + 1)
+        return diagnose_error(
+            predict_contents, cog_predict_command, error, attempt=attempt + 1
+        )
     return text
 
 
-def fix_predict_py(predict_contents, error, *, attempt=0):
-    text = call_gpt(fix_predict_py_prompt(predict_contents, error))
+def fix_predict_py(predict_contents, error, repo_path, *, attempt=0):
+    text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path))
     pattern = re.compile(
         rf"(?:\n```[a-z]*\n)?(.*)(?:\n```)?",
         re.MULTILINE | re.DOTALL,
@@ -436,16 +436,19 @@ def fix_predict_py(predict_contents, error, *, attempt=0):
     except:
         if attempt == 3:
             raise ValueError("Failed to generate patch")
-        return fix_predict_py(predict_contents, error, attempt=attempt + 1)
+        return fix_predict_py(predict_contents, error, repo_path, attempt=attempt + 1)
 
 
 def fix_cog_yaml(cog_yaml_contents, predict_contents, error, *, attempt=0):
-    text = call_gpt(fix_cog_yaml_prompt(cog_yaml_contents, predict_contents, error), temperature=0.5 + attempt/5)
-    pattern = re.compile(
-        rf"(?:\n```[a-z]*\n)?(.*)(?:\n```)?",
-        re.MULTILINE | re.DOTALL,
-    )
-    return pattern.search(text)[1]
+    for local_attempt in range(3):
+        text = call_gpt(
+            fix_cog_yaml_prompt(cog_yaml_contents, predict_contents, error),
+            temperature=0.5 + attempt / 5,
+        )
+        contents = file_from_gpt_response(text, "cog.yaml")
+        if contents:
+            return contents
+    raise ValueError("Failed to get cog.yaml fix")
 
 
 def patch(contents, diff):
@@ -479,23 +482,38 @@ def patch(contents, diff):
     default="",
     help="Path to the ML repository (default is current directory)",
 )
-@click.option("-t", "--token", required=True, help="OpenAI API token (required)")
-@click.option("-q", "--quiet", is_flag=True, help="Suppress output")
-def autocog(repo, token, quiet):
-    global VERBOSE
-
-    if quiet:
-        VERBOSE = False
-
-    openai.api_key = token
+@click.option(
+    "-k",
+    "--openai-api-key",
+    default=os.environ.get("OPENAI_API_KEY", ""),
+    help="OpenAI API token (optional, defaults to the environment variable OPENAI_API_KEY)",
+)
+@click.option(
+    "-a", "--attempts", default=5, type=int, help="Number of attempts before giving up"
+)
+@click.option(
+    "-c",
+    "--continue",
+    "continue_from_existing",
+    is_flag=True,
+    help="Continue to try to fix an existing predict.py and cog.yaml instead of generating them from scratch. AutoCog isn't perfect and having a human in the loop is often necessary.",
+)
+def autocog(repo, openai_api_key, attempts, continue_from_existing):
+    openai.api_key = openai_api_key
 
     repo_path = repo or os.getcwd()
 
-    paths = order_paths(repo_path)
-    files = generate_files(repo_path, paths)
-    write_files(repo_path, files)
+    if continue_from_existing:
+        files = {}
+        for filename in ["cog.yaml", "predict.py"]:
+            with open(os.path.join(repo_path, filename)) as f:
+                files[filename] = f.read()
+    else:
+        paths = order_paths(repo_path)
+        files = generate_files(repo_path, paths)
+        write_files(repo_path, files)
     cog_predict_command = generate_cog_predict_command(files["predict.py"])
-    for attempt in range(MAX_ATTEMPTS):
+    for attempt in range(attempts):
         cog_predict_command = create_files_for_cog_predict_command(
             cog_predict_command, repo_path
         )
@@ -503,26 +521,27 @@ def autocog(repo, token, quiet):
         if success:
             return
 
-        if attempt == MAX_ATTEMPTS - 1:
-            print(f"Failed after {MAX_ATTEMPTS} attempts, giving up :'(")
+        if attempt == attempts - 1:
+            print(f"Failed after {attempts} attempts, giving up :'(")
             sys.exit(1)
 
-        if VERBOSE:
-            print(
-                f"Attempt {attempt + 1}/{MAX_ATTEMPTS} failed, trying to fix...",
-                file=sys.stderr,
-            )
+        print(
+            f"Attempt {attempt + 1}/{attempts} failed, trying to fix...",
+            file=sys.stderr,
+        )
 
         error = parse_cog_predict_error(stderr)
         error_source = diagnose_error(files["predict.py"], cog_predict_command, error)
         if error_source == ERROR_PREDICT_PY:
-            files["predict.py"] = fix_predict_py(files["predict.py"], error)
+            files["predict.py"] = fix_predict_py(files["predict.py"], error, repo_path)
             write_files(repo_path, files)
         elif error_source == ERROR_COG_YAML:
-            files["cog.yaml"] = fix_cog_yaml(files["cog.yaml"], files["predict.py"], error, attempt=attempt)
+            files["cog.yaml"] = fix_cog_yaml(
+                files["cog.yaml"], files["predict.py"], error, attempt=attempt
+            )
+            write_files(repo_path, files)
         elif error_source == ERROR_COG_PREDICT:
             cog_predict_command = generate_cog_predict_command(files["predict.py"])
-            write_files(repo_path, files)
 
 
 if __name__ == "__main__":
