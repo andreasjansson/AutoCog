@@ -80,9 +80,9 @@ ERROR_PREDICT_PY = "predict.py"
 ERROR_COG_YAML = "cog.yaml"
 
 
-def diagnose_error_prompt(predict_contents, cog_predict_command, error):
+def diagnose_error_prompt(predict_contents, predict_command, error):
     return f"""
-The command `{cog_predict_command}` return the following error:
+The command `{predict_command}` return the following error:
 
 ```
 {error}
@@ -317,7 +317,7 @@ def call_gpt(messages, *, temperature=0.5):
     return text
 
 
-def generate_cog_predict_command(predict_contents):
+def generate_predict_command(predict_contents):
     return call_gpt(cog_predict_prompt(predict_contents))
 
 
@@ -339,11 +339,11 @@ def write_files(repo_path, files):
             f.write(content)
 
 
-def run_cog_predict(cog_predict_command, repo_path):
-    print(cog_predict_command, file=sys.stderr)
+def run_cog_predict(predict_command, repo_path):
+    print(predict_command, file=sys.stderr)
 
     proc = subprocess.Popen(
-        cog_predict_command, cwd=repo_path, stderr=subprocess.PIPE, shell=True
+        predict_command, cwd=repo_path, stderr=subprocess.PIPE, shell=True
     )
     stderr = ""
     for line in proc.stderr:
@@ -359,17 +359,16 @@ def run_cog_predict(cog_predict_command, repo_path):
     return False, stderr
 
 
-def create_files_for_cog_predict_command(cog_predict_command, repo_path):
-    file_inputs = re.findall(r"@([\w.]+)", cog_predict_command)
+def create_files_for_predict_command(predict_command, repo_path):
+    file_inputs = re.findall(r"@([\w.]+)", predict_command)
 
     for filename in file_inputs:
-        tmp_path = os.path.join("/tmp", filename)
-        cog_predict_command = cog_predict_command.replace(
-            "@" + filename, "@" + tmp_path
-        )
-        create_empty_file(tmp_path, repo_path)
+        if not os.path.exists(filename):
+            tmp_path = os.path.join("/tmp", os.path.basename(filename))
+            predict_command = predict_command.replace("@" + filename, "@" + tmp_path)
+            create_empty_file(tmp_path, repo_path)
 
-    return cog_predict_command
+    return predict_command
 
 
 def create_empty_file(filename, repo_path):
@@ -411,15 +410,15 @@ def parse_cog_predict_error(stderr, *, max_length=20000):
     return error[-max_length:]
 
 
-def diagnose_error(predict_contents, cog_predict_command, error, *, attempt=0):
+def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
     print("Diagnosing source of error: ", file=sys.stderr)
 
-    text = call_gpt(diagnose_error_prompt(predict_contents, cog_predict_command, error))
+    text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error))
     if text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
         if attempt == 3:
             raise ValueError("Failed to diagnose error")
         return diagnose_error(
-            predict_contents, cog_predict_command, error, attempt=attempt + 1
+            predict_contents, predict_command, error, attempt=attempt + 1
         )
     return text
 
@@ -489,7 +488,17 @@ def patch(contents, diff):
     help="OpenAI API token (optional, defaults to the environment variable OPENAI_API_KEY)",
 )
 @click.option(
-    "-a", "--attempts", default=5, type=int, help="Number of attempts before giving up"
+    "-n",
+    "--attempts",
+    default=5,
+    type=int,
+    help="Number of attempts to try to fix issues before giving up",
+)
+@click.option(
+    "-p",
+    "--predict-command",
+    "initial_predict_command",
+    help="Initial predict command. If not specified, AutoCog will generate one",
 )
 @click.option(
     "-c",
@@ -498,7 +507,9 @@ def patch(contents, diff):
     is_flag=True,
     help="Continue to try to fix an existing predict.py and cog.yaml instead of generating them from scratch. AutoCog isn't perfect and having a human in the loop is often necessary.",
 )
-def autocog(repo, openai_api_key, attempts, continue_from_existing):
+def autocog(
+    repo, openai_api_key, attempts, initial_predict_command, continue_from_existing
+):
     openai.api_key = openai_api_key
 
     repo_path = repo or os.getcwd()
@@ -512,12 +523,13 @@ def autocog(repo, openai_api_key, attempts, continue_from_existing):
         paths = order_paths(repo_path)
         files = generate_files(repo_path, paths)
         write_files(repo_path, files)
-    cog_predict_command = generate_cog_predict_command(files["predict.py"])
     for attempt in range(attempts):
-        cog_predict_command = create_files_for_cog_predict_command(
-            cog_predict_command, repo_path
-        )
-        success, stderr = run_cog_predict(cog_predict_command, repo_path)
+        if attempt == 0 and initial_predict_command:
+            predict_command = initial_predict_command
+        else:
+            predict_command = generate_predict_command(files["predict.py"])
+        predict_command = create_files_for_predict_command(predict_command, repo_path)
+        success, stderr = run_cog_predict(predict_command, repo_path)
         if success:
             return
 
@@ -531,7 +543,7 @@ def autocog(repo, openai_api_key, attempts, continue_from_existing):
         )
 
         error = parse_cog_predict_error(stderr)
-        error_source = diagnose_error(files["predict.py"], cog_predict_command, error)
+        error_source = diagnose_error(files["predict.py"], predict_command, error)
         if error_source == ERROR_PREDICT_PY:
             files["predict.py"] = fix_predict_py(files["predict.py"], error, repo_path)
             write_files(repo_path, files)
@@ -541,7 +553,7 @@ def autocog(repo, openai_api_key, attempts, continue_from_existing):
             )
             write_files(repo_path, files)
         elif error_source == ERROR_COG_PREDICT:
-            cog_predict_command = generate_cog_predict_command(files["predict.py"])
+            predict_command = generate_predict_command(files["predict.py"])
 
 
 if __name__ == "__main__":
