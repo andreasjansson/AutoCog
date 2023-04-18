@@ -1,8 +1,16 @@
 # AutoCog
 
+[![PyPI version](https://badge.fury.io/py/autocog.svg)](https://badge.fury.io/py/autocog)
+
 _Generate [predict.py and cog.yaml](https://github.com/replicate/cog) automatically using GPT4_
 
 ![Screen recording](https://github.com/andreasjansson/AutoCog/raw/main/assets/screen-recording.gif)
+
+## Install
+
+```
+pip install autocog
+```
 
 ## Usage
 
