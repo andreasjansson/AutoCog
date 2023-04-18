@@ -2,7 +2,7 @@
 
 _Generate [predict.py and cog.yaml](https://github.com/replicate/cog) automatically using GPT4_
 
-![Screen recording](assets/screen-recording.gif)
+![Screen recording](https://github.com/andreasjansson/AutoCog/raw/main/assets/screen-recording.gif)
 
 ## Usage
 
