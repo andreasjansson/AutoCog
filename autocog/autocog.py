@@ -497,7 +497,6 @@ def patch(contents, diff):
 @click.option(
     "-p",
     "--predict-command",
-    "initial_predict_command",
     help="Initial predict command. If not specified, AutoCog will generate one",
 )
 @click.option(
@@ -508,7 +507,7 @@ def patch(contents, diff):
     help="Continue to try to fix an existing predict.py and cog.yaml instead of generating them from scratch. AutoCog isn't perfect and having a human in the loop is often necessary.",
 )
 def autocog(
-    repo, openai_api_key, attempts, initial_predict_command, continue_from_existing
+    repo, openai_api_key, attempts, predict_command, continue_from_existing
 ):
     openai.api_key = openai_api_key
 
@@ -523,12 +522,11 @@ def autocog(
         paths = order_paths(repo_path)
         files = generate_files(repo_path, paths)
         write_files(repo_path, files)
+
+    if not predict_command:
+        predict_command = generate_predict_command(files["predict.py"])
+    predict_command = create_files_for_predict_command(predict_command, repo_path)
     for attempt in range(attempts):
-        if attempt == 0 and initial_predict_command:
-            predict_command = initial_predict_command
-        else:
-            predict_command = generate_predict_command(files["predict.py"])
-        predict_command = create_files_for_predict_command(predict_command, repo_path)
         success, stderr = run_cog_predict(predict_command, repo_path)
         if success:
             return
@@ -554,6 +552,7 @@ def autocog(
             write_files(repo_path, files)
         elif error_source == ERROR_COG_PREDICT:
             predict_command = generate_predict_command(files["predict.py"])
+            predict_command = create_files_for_predict_command(predict_command, repo_path)
 
 
 if __name__ == "__main__":
