@@ -9,7 +9,7 @@ setup(
     name="autocog",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.0.3",
+    version="0.0.4",
     url="https://github.com/andreasjansson/AutoCog",
     packages=find_packages(),
     install_requires=[
