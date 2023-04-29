@@ -498,7 +498,7 @@ def initialize_project(repo_path):
     "-k",
     "--openai-api-key",
     default=os.environ.get("OPENAI_API_KEY", ""),
-    help="OpenAI API token (optional, defaults to the environment variable OPENAI_API_KEY)",
+    help="OpenAI API key (optional, defaults to the environment variable OPENAI_API_KEY)",
 )
 @click.option(
     "-n",
