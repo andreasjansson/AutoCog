@@ -9,13 +9,15 @@ setup(
     name="autocog",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.0.4",
+    version="0.0.5",
     url="https://github.com/andreasjansson/AutoCog",
     packages=find_packages(),
     install_requires=[
         "openai",
         "click",
         "Pillow",
+        "pydub",
+        "opencv-python",
     ],
     entry_points={
         "console_scripts": [

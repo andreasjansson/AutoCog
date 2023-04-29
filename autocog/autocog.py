@@ -1,14 +1,17 @@
 from collections import deque
 import sys
-from PIL import Image
 import wave
+import array
 import re
 import click
 import os
 import subprocess
-import openai
 import tempfile
-import glob
+
+from PIL import Image
+import openai
+from pydub import AudioSegment
+import cv2
 
 
 def file_start(filename):
@@ -65,7 +68,7 @@ def cog_predict_prompt(predict_contents):
     return f"""
 Below is an example of a cog predict command:
 
-cog predict -i @input.jpg
+cog predict -i input1=@input.jpg -i input2=foo
 
 Return a cog predict command for the following predict.py file (and return only the prompt, no other text):
 
@@ -383,20 +386,30 @@ def create_empty_file(filename, repo_path):
     elif file_type == "wav":
         with wave.open(filename, "wb") as wav_file:
             wav_file.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
-            data = np.zeros((44100, 2))
-            wav_file.writeframes(data.astype(np.int16).tobytes())
+            data = array.array("h", [0] * 44100 * 2)  # 'h' is for signed short integers
+            wav_file.writeframes(data.tobytes())
     elif file_type == "mp3":
-        with open(filename, "wb") as mp3_file:
-            pass
+        silence = AudioSegment.silent(duration=1000)  # duration in milliseconds
+        silence.export(filename, format="mp3")
     elif file_type == "txt":
         with open(filename, "w") as txt_file:
-            pass
+            txt_file.write("   ")
     elif file_type == "mp4":
-        with open(filename, "wb") as mp4_file:
-            pass
+        height, width = 640, 480
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        video = cv2.VideoWriter(filename, fourcc, 1, (width, height))
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        for _ in range(30):
+            video.write(frame)
+        video.release()
     elif file_type == "avi":
-        with open(filename, "wb") as avi_file:
-            pass
+        height, width = 640, 480
+        fourcc = cv2.VideoWriter_fourcc(*"XVID")
+        video = cv2.VideoWriter(filename, fourcc, 1, (width, height))
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        for _ in range(30):
+            video.write(frame)
+        video.release()
     else:
         raise ValueError("Unsupported file type")
 
@@ -475,7 +488,9 @@ def patch(contents, diff):
 
 
 def is_initialized(repo_path):
-    return os.path.exists(os.path.join(repo_path, "cog.yaml")) and os.path.exists(os.path.join(repo_path, "predict.py"))
+    return os.path.exists(os.path.join(repo_path, "cog.yaml")) and os.path.exists(
+        os.path.join(repo_path, "predict.py")
+    )
 
 
 def initialize_project(repo_path):
@@ -485,6 +500,12 @@ def initialize_project(repo_path):
         os.remove(cog_yaml_path)
     if os.path.exists(predict_py_path):
         os.remove(predict_py_path)
+
+
+def read_file(path):
+    with open(path, "r") as file:
+        content = file.read()
+    return content
 
 
 @click.command()
@@ -526,10 +547,13 @@ def initialize_project(repo_path):
     hidden=True,
 )
 def autocog(
-        repo, openai_api_key, attempts, predict_command, initialize, continue_from_existing
+    repo, openai_api_key, attempts, predict_command, initialize, continue_from_existing
 ):
     if not openai_api_key:
-        print("OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable or pass it to autocog with the -k/--openai-api-key parameter.", file=sys.stderr)
+        print(
+            "OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable or pass it to autocog with the -k/--openai-api-key parameter.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     openai.api_key = openai_api_key
@@ -537,12 +561,20 @@ def autocog(
     repo_path = repo or os.getcwd()
 
     if continue_from_existing:
-        print("The -c/--continue argument has been deprecated and is now a no-op. If you don't specify the --initialize flag, autocog will continue from the current state of the repository", file=sys.stderr)
+        print(
+            "The -c/--continue argument has been deprecated and is now a no-op. If you don't specify the --initialize flag, autocog will continue from the current state of the repository",
+            file=sys.stderr,
+        )
 
     if initialize:
         initialize_project(repo_path)
 
-    if not is_initialized(repo_path):
+    if is_initialized(repo_path):
+        files = {
+            "cog.yaml": read_file("cog.yaml"),
+            "predict.py": read_file("predict.py"),
+        }
+    else:
         paths = order_paths(repo_path)
         files = generate_files(repo_path, paths)
         write_files(repo_path, files)
@@ -576,7 +608,9 @@ def autocog(
             write_files(repo_path, files)
         elif error_source == ERROR_COG_PREDICT:
             predict_command = generate_predict_command(files["predict.py"])
-            predict_command = create_files_for_predict_command(predict_command, repo_path)
+            predict_command = create_files_for_predict_command(
+                predict_command, repo_path
+            )
 
 
 if __name__ == "__main__":
