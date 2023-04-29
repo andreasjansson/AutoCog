@@ -150,7 +150,7 @@ def order_paths_prompt(paths, readme_contents):
     paths_list = "\n".join(paths)
 
     prompt = f"""
-Given the file paths and readme below, order them by how relevant they are for inference and in particular for building a Replicate prediction model with Cog. Return the ordered file paths in the following format (and make sure to not include anything else than the list of file paths):
+Given the file paths and readme below, order them by how relevant they are for inference and in particular for building a Replicate prediction model with Cog. Return the ordered file paths (a maximum of 25 paths) in the following format (and make sure to not include anything else than the list of file paths):
 
 most_relevant.py
 second_most_relevant.py
@@ -184,7 +184,7 @@ def order_paths(repo_path, *, attempt=0):
 
     content = call_gpt(order_paths_prompt(paths, readme_contents))
     ordered_paths = content.strip().splitlines()
-    if set(paths) != set(ordered_paths):
+    if set(ordered_paths) - set(paths):
         if attempt == 5:
             raise ValueError("Failed to order paths")
         return order_paths(repo_path, attempt=attempt + 1)
