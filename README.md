@@ -34,10 +34,6 @@ If your model needs a GPU to run, you need to run AutoCog on a GPU machine.
 
 Sometimes AutoCog fails to create a working Cog configuration. In those cases you, the human, have to step in and edit the cog.yaml and predict.py files.
 
-Once you have edited them, let AutoCog continue:
-
-```
-autocog --continue
-```
+Once you have edited them, let AutoCog continue by running `autocog` again. If you'd like to recreate `predict.py` and `cog.yaml` from scratch, run `autocog --initialize`.
 
 By default, AutoCog will guess a `cog predict` command to run the model. If you want to specify your own predict command, use the `--predict-command` flag.

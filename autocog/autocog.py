@@ -474,6 +474,19 @@ def patch(contents, diff):
     return patched_contents
 
 
+def is_initialized(repo_path):
+    return os.path.exists(os.path.join(repo_path, "cog.yaml")) and os.path.exists(os.path.join(repo_path, "predict.py"))
+
+
+def initialize_project(repo_path):
+    cog_yaml_path = os.path.join(repo_path, "cog.yaml")
+    predict_py_path = os.path.join(repo_path, "predict.py")
+    if os.path.exists(cog_yaml_path):
+        os.remove(cog_yaml_path)
+    if os.path.exists(predict_py_path):
+        os.remove(predict_py_path)
+
+
 @click.command()
 @click.option(
     "-r",
@@ -500,25 +513,36 @@ def patch(contents, diff):
     help="Initial predict command. If not specified, AutoCog will generate one",
 )
 @click.option(
+    "-i",
+    "--initialize",
+    help="Initialize project by removing any existing predict.py and cog.yaml files. If omitted, AutoCog will continue from the current state of the repository",
+    is_flag=True,
+)
+@click.option(
     "-c",
     "--continue",
     "continue_from_existing",
     is_flag=True,
-    help="Continue to try to fix an existing predict.py and cog.yaml instead of generating them from scratch. AutoCog isn't perfect and having a human in the loop is often necessary.",
+    hidden=True,
 )
 def autocog(
-    repo, openai_api_key, attempts, predict_command, continue_from_existing
+        repo, openai_api_key, attempts, predict_command, initialize, continue_from_existing
 ):
+    if not openai_api_key:
+        print("OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable or pass it to autocog with the -k/--openai-api-key parameter.", file=sys.stderr)
+        sys.exit(1)
+
     openai.api_key = openai_api_key
 
     repo_path = repo or os.getcwd()
 
     if continue_from_existing:
-        files = {}
-        for filename in ["cog.yaml", "predict.py"]:
-            with open(os.path.join(repo_path, filename)) as f:
-                files[filename] = f.read()
-    else:
+        print("The -c/--continue argument has been deprecated and is now a no-op. If you don't specify the --initialize flag, autocog will continue from the current state of the repository", file=sys.stderr)
+
+    if initialize:
+        initialize_project(repo_path)
+
+    if not is_initialized(repo_path):
         paths = order_paths(repo_path)
         files = generate_files(repo_path, paths)
         write_files(repo_path, files)
