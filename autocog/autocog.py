@@ -1,3 +1,4 @@
+import time
 from collections import deque
 import sys
 import wave
@@ -9,9 +10,11 @@ import subprocess
 import tempfile
 
 from PIL import Image
-import openai
 from pydub import AudioSegment
 import cv2
+
+from .cache import cached, purge_cache
+from .gpt import call_gpt, MaxTokensExceeded, set_openai_api_key
 
 
 def file_start(filename):
@@ -50,7 +53,6 @@ class Predictor(BasePredictor):
         return postprocess(output)
 '''
 
-SYSTEM_PROMPT = "You are an expert Python machine learning developer."
 COG_PROMPT = f"""
 Below is an example of a cog.yaml file and a predict.py file.
 
@@ -172,33 +174,55 @@ End of paths. Below is the readme:
     return prompt
 
 
-def order_paths(repo_path, *, attempt=0):
-    paths = find_python_files(repo_path)
+def truncate_error(error):
+    return error[int(len(error) * 0.4) :]
+
+
+@cached("paths.pkl")
+def order_paths(repo_path, *, attempt=0, readme_contents=None):
+    paths = find_python_files(repo_path, relative=True)
     if len(paths) == 0:
         raise ValueError(f"{repo_path} has no Python files")
 
     print("Ordering files based on importance...", file=sys.stderr)
 
-    readme_contents = ""
-    readme_path = os.path.join(repo_path, "README.md")
-    if os.path.exists(readme_path):
-        with open(readme_path) as f:
-            readme_contents = f.read()
+    if readme_contents is None:
+        readme_contents = ""
+        readme_path = os.path.join(repo_path, "README.md")
+        if os.path.exists(readme_path):
+            with open(readme_path) as f:
+                readme_contents = f.read()
 
-    content = call_gpt(order_paths_prompt(paths, readme_contents))
+    try:
+        content = call_gpt(order_paths_prompt(paths, readme_contents))
+    except MaxTokensExceeded:
+        if attempt == 5:
+            raise
+
+        return order_paths(
+            repo_path, attempt=attempt + 1, readme_contents=readme_contents[:-1000]
+        )
+
     ordered_paths = content.strip().splitlines()
     if set(ordered_paths) - set(paths):
         if attempt == 5:
             raise ValueError("Failed to order paths")
         return order_paths(repo_path, attempt=attempt + 1)
+
+    for i, path in enumerate(ordered_paths):
+        ordered_paths[i] = os.path.join(repo_path, path)
+
     return ordered_paths
 
 
-def files_prompt(repo_path, paths, max_length):
+def files_prompt(repo_path, paths, tell, max_length):
     prompt = f"""
 Given the files below, generate a predict.py and cog.yaml file. In cog.yaml, ensure that all Python packages must have pinned versions. Also in cog.yaml, add short comments to describe what parts of the code made you decide on the different parts of cog.yaml. Wrap the contents of both files in the strings '{file_start("<filename>")}' and '{file_end("<filename>")}'. Don't output any other text before or after the files.
 
 """
+    if tell:
+        prompt += tell + "\n\n"
+
     readme_path = os.path.join(repo_path, "README.md")
     if os.path.exists(readme_path):
         paths.insert(0, readme_path)
@@ -207,6 +231,8 @@ Given the files below, generate a predict.py and cog.yaml file. In cog.yaml, ens
         paths.insert(0, requirements_path)
 
     for path in paths:
+        if not os.path.exists(path):
+            continue
         with open(path, "r") as f:
             filename = os.path.relpath(path, repo_path)
             contents = f.read()
@@ -224,7 +250,7 @@ Given the files below, generate a predict.py and cog.yaml file. In cog.yaml, ens
     return prompt
 
 
-def generate_files(repo_path, paths, *, attempt=0):
+def generate_files(repo_path, paths, tell, *, attempt=0):
     max_lengths = [25000, 20000, 15000, 10000]
 
     try:
@@ -235,16 +261,15 @@ def generate_files(repo_path, paths, *, attempt=0):
                 {
                     "role": "user",
                     "content": files_prompt(
-                        repo_path, paths, max_length=max_lengths[attempt]
+                        repo_path, paths, tell, max_length=max_lengths[attempt]
                     ),
                 },
             ]
         )
-    except openai.error.InvalidRequestError as e:
-        if "context length" in str(e):
-            if attempt == len(max_lengths):
-                raise
-            return generate_files(repo_path, paths, attempt=attempt + 1)
+    except MaxTokensExceeded:
+        if attempt == len(max_lengths):
+            raise
+        return generate_files(repo_path, paths, tell, attempt=attempt + 1)
 
     if file_end("cog.yaml") not in content or file_end("predict.py") not in content:
         if attempt == len(max_lengths):
@@ -253,7 +278,7 @@ def generate_files(repo_path, paths, *, attempt=0):
             f"Failed to complete the output, trying again (attempt {attempt + 1}/{len(max_lengths)})",
             file=sys.stderr,
         )
-        generate_files(repo_path, paths, attempt=attempt + 1)
+        generate_files(repo_path, paths, tell, attempt=attempt + 1)
 
     files = {
         "cog.yaml": file_from_gpt_response(content, "cog.yaml"),
@@ -284,40 +309,6 @@ def find_python_files(repo_path, *, relative=False):
                 queue.append(path_to_return)
 
     return python_files
-
-
-def call_gpt(messages, *, temperature=0.5):
-    if type(messages) == str:
-        messages = [{"role": "user", "content": messages}]
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4",  # gpt-4-32k
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-        ]
-        + messages,
-        n=1,
-        stop=None,
-        temperature=temperature,
-        stream=True,
-    )
-    text = ""
-    for chunk in response:
-        if not chunk:
-            continue
-        chunk_text = chunk["choices"][0]["delta"].get("content", None)
-        if chunk_text == None:
-            continue
-        text += chunk_text
-        sys.stderr.write(chunk_text)
-        sys.stderr.flush()
-
-    sys.stderr.write("\n")
-
-    return text
 
 
 def generate_predict_command(predict_contents):
@@ -353,6 +344,10 @@ def run_cog_predict(predict_command, repo_path):
         line = line.decode()
         sys.stderr.write(line)
         stderr += line
+
+        if "Model setup failed" in line:
+            proc.kill()
+            break
 
     proc.wait()
     # cog predict will return 0 if the model fails internally
@@ -426,9 +421,20 @@ def parse_cog_predict_error(stderr, *, max_length=20000):
 def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
     print("Diagnosing source of error: ", file=sys.stderr)
 
-    text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error))
+    try:
+        text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error))
+    except MaxTokensExceeded:
+        if attempt == 5:
+            raise
+
+        return diagnose_error(
+            predict_contents,
+            predict_command,
+            truncate_error(error),
+            attempt=attempt + 1,
+        )
     if text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
-        if attempt == 3:
+        if attempt == 5:
             raise ValueError("Failed to diagnose error")
         return diagnose_error(
             predict_contents, predict_command, error, attempt=attempt + 1
@@ -437,7 +443,15 @@ def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
 
 
 def fix_predict_py(predict_contents, error, repo_path, *, attempt=0):
-    text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path))
+    try:
+        text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path))
+    except MaxTokensExceeded:
+        if attempt == 5:
+            raise
+        return fix_predict_py(
+            predict_contents, truncate_error(error), repo_path, attempt=attempt + 1
+        )
+
     pattern = re.compile(
         rf"(?:\n```[a-z]*\n)?(.*)(?:\n```)?",
         re.MULTILINE | re.DOTALL,
@@ -446,21 +460,43 @@ def fix_predict_py(predict_contents, error, repo_path, *, attempt=0):
     try:
         return patch(predict_contents, diff)
     except:
-        if attempt == 3:
+        if attempt == 5:
             raise ValueError("Failed to generate patch")
-        return fix_predict_py(predict_contents, error, repo_path, attempt=attempt + 1)
+        return fix_predict_py(
+            predict_contents, truncate_error(error), repo_path, attempt=attempt + 1
+        )
 
 
 def fix_cog_yaml(cog_yaml_contents, predict_contents, error, *, attempt=0):
-    for local_attempt in range(3):
+    if attempt == 5:
+        raise ValueError("Failed to get cog.yaml fix")
+
+    try:
         text = call_gpt(
             fix_cog_yaml_prompt(cog_yaml_contents, predict_contents, error),
             temperature=0.5 + attempt / 5,
         )
-        contents = file_from_gpt_response(text, "cog.yaml")
-        if contents:
-            return contents
-    raise ValueError("Failed to get cog.yaml fix")
+    except MaxTokensExceeded:
+        if attempt == 5:
+            raise
+
+        return fix_cog_yaml(
+            cog_yaml_contents,
+            predict_contents,
+            truncate_error(error),
+            attempt=attempt + 1,
+        )
+
+    contents = file_from_gpt_response(text, "cog.yaml")
+    if contents:
+        return contents
+
+    return fix_cog_yaml(
+        cog_yaml_contents,
+        predict_contents,
+        error,
+        attempt=attempt + 1,
+    )
 
 
 def patch(contents, diff):
@@ -500,6 +536,7 @@ def initialize_project(repo_path):
         os.remove(cog_yaml_path)
     if os.path.exists(predict_py_path):
         os.remove(predict_py_path)
+    purge_cache(repo_path)
 
 
 def read_file(path):
@@ -534,6 +571,11 @@ def read_file(path):
     help="Initial predict command. If not specified, AutoCog will generate one",
 )
 @click.option(
+    "-t",
+    "--tell",
+    help="Tell AutoCog to ",
+)
+@click.option(
     "-i",
     "--initialize",
     help="Initialize project by removing any existing predict.py and cog.yaml files. If omitted, AutoCog will continue from the current state of the repository",
@@ -547,7 +589,13 @@ def read_file(path):
     hidden=True,
 )
 def autocog(
-    repo, openai_api_key, attempts, predict_command, initialize, continue_from_existing
+    repo,
+    openai_api_key,
+    attempts,
+    predict_command,
+    tell,
+    initialize,
+    continue_from_existing,
 ):
     if not openai_api_key:
         print(
@@ -556,7 +604,7 @@ def autocog(
         )
         sys.exit(1)
 
-    openai.api_key = openai_api_key
+    set_openai_api_key(openai_api_key)
 
     repo_path = repo or os.getcwd()
 
@@ -569,14 +617,25 @@ def autocog(
     if initialize:
         initialize_project(repo_path)
 
-    if is_initialized(repo_path):
+    if is_initialized(repo_path) and not tell:
         files = {
             "cog.yaml": read_file("cog.yaml"),
             "predict.py": read_file("predict.py"),
         }
+    elif tell:
+        paths = order_paths(repo_path)
+        cog_yaml_path = os.path.join(repo_path, "cog.yaml")
+        predict_py_path = os.path.join(repo_path, "predict.py")
+        paths.insert(0, cog_yaml_path)
+        if predict_py_path in paths:
+            paths.remove(predict_py_path)
+        paths.insert(0, predict_py_path)
+        tell = "Make sure to follow these instructions: " + tell
+        files = generate_files(repo_path, paths, tell=tell)
+        write_files(repo_path, files)
     else:
         paths = order_paths(repo_path)
-        files = generate_files(repo_path, paths)
+        files = generate_files(repo_path, paths, tell=None)
         write_files(repo_path, files)
 
     if not predict_command:
@@ -603,7 +662,7 @@ def autocog(
             write_files(repo_path, files)
         elif error_source == ERROR_COG_YAML:
             files["cog.yaml"] = fix_cog_yaml(
-                files["cog.yaml"], files["predict.py"], error, attempt=attempt
+                files["cog.yaml"], files["predict.py"], error
             )
             write_files(repo_path, files)
         elif error_source == ERROR_COG_PREDICT:

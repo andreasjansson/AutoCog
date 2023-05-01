@@ -37,3 +37,9 @@ Sometimes AutoCog fails to create a working Cog configuration. In those cases yo
 Once you have edited them, let AutoCog continue by running `autocog` again. If you'd like to recreate `predict.py` and `cog.yaml` from scratch, run `autocog --initialize`.
 
 By default, AutoCog will guess a `cog predict` command to run the model. If you want to specify your own predict command, use the `--predict-command` flag.
+
+If you want AutoCog to take the generation of `cog.yaml` and `predict.py` in a specific direction, you can use the `--tell` flag to prompt GPT4:
+
+```
+autocog --tell="Add inputs to allow for inpainting"
+```
