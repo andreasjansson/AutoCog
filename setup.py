@@ -17,7 +17,7 @@ setup(
     url="https://github.com/andreasjansson/AutoCog",
     packages=find_packages(),
     install_requires=[
-        "openai",
+        "openai==1.3.6",
         "click",
         "Pillow",
         "pydub",
