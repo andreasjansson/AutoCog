@@ -1,6 +1,6 @@
+import functools
 import os
 import pickle
-import functools
 import shutil
 
 
@@ -14,12 +14,13 @@ class Cache:
         return os.path.exists(self.cache_file)
 
     def read(self):
-        with open(self.cache_file, 'rb') as f:
+        with open(self.cache_file, "rb") as f:
             return pickle.load(f)
 
     def write(self, data):
-        with open(self.cache_file, 'wb') as f:
+        with open(self.cache_file, "wb") as f:
             pickle.dump(data, f)
+
 
 def cached(cache_name):
     def decorator(func):
@@ -31,7 +32,9 @@ def cached(cache_name):
             result = func(repo_path, *args, **kwargs)
             cache.write(result)
             return result
+
         return wrapper
+
     return decorator
 
 

@@ -1,7 +1,7 @@
 import sys
-from openai import OpenAI, RateLimitError, APIError
 import time
 
+from openai import APIError, OpenAI, RateLimitError
 
 SYSTEM_PROMPT = "You are an expert Python machine learning developer."
 
@@ -17,9 +17,7 @@ def initialize_client(api_key, base_url=None):
             base_url=base_url,
         )
     else:
-        client = OpenAI(
-            api_key=api_key
-        )
+        client = OpenAI(api_key=api_key)
     return client
 
 
@@ -40,7 +38,7 @@ def call_gpt(messages, client, *, temperature=0.5, model="gpt-4"):
             n=1,
             stop=None,
             temperature=temperature,
-            stream=True
+            stream=True,
         )
     except RateLimitError as e:
         time.sleep(10)
@@ -54,7 +52,7 @@ def call_gpt(messages, client, *, temperature=0.5, model="gpt-4"):
     #         raise MaxTokensExceeded()
     #     raise
     except APIError as e:
-        print('Some other error')
+        print("Some other error")
         raise Exception from e
 
     text = ""

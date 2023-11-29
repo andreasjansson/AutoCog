@@ -1,9 +1,13 @@
-from setuptools import setup, find_packages
 from pathlib import Path
+
+from setuptools import find_packages, setup
 
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
-long_description = long_description.replace("![Screen recording](https://github.com/andreasjansson/AutoCog/raw/main/assets/screen-recording.gif)\n", "")
+long_description = long_description.replace(
+    "![Screen recording](https://github.com/andreasjansson/AutoCog/raw/main/assets/screen-recording.gif)\n",
+    "",
+)
 
 setup(
     name="autocog",
