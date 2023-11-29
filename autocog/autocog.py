@@ -12,9 +12,10 @@ import tempfile
 from PIL import Image
 from pydub import AudioSegment
 import cv2
+import numpy as np
 
 from .cache import cached, purge_cache
-from .gpt import call_gpt, MaxTokensExceeded, set_openai_api_key
+from .gpt import call_gpt, MaxTokensExceeded, initialize_client
 
 
 def file_start(filename):
@@ -65,6 +66,8 @@ Below is an example of a cog.yaml file and a predict.py file.
 {file_end("predict.py")}
 """
 
+OPENAI_MODELS = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-32k']
+REPLICATE_MODELS = ['meta/llama-2-70b-chat']
 
 def cog_predict_prompt(predict_contents):
     return f"""
@@ -194,7 +197,7 @@ def order_paths(repo_path, *, attempt=0, readme_contents=None):
                 readme_contents = f.read()
 
     try:
-        content = call_gpt(order_paths_prompt(paths, readme_contents))
+        content = call_gpt(order_paths_prompt(paths, readme_contents), client, model=global_model)
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -264,7 +267,9 @@ def generate_files(repo_path, paths, tell, *, attempt=0):
                         repo_path, paths, tell, max_length=max_lengths[attempt]
                     ),
                 },
-            ]
+            ],
+            client,
+            model=global_model
         )
     except MaxTokensExceeded:
         if attempt == len(max_lengths):
@@ -312,7 +317,7 @@ def find_python_files(repo_path, *, relative=False):
 
 
 def generate_predict_command(predict_contents):
-    return call_gpt(cog_predict_prompt(predict_contents))
+    return call_gpt(cog_predict_prompt(predict_contents), client, model=global_model)
 
 
 def file_from_gpt_response(content, filename):
@@ -422,7 +427,7 @@ def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
     print("Diagnosing source of error: ", file=sys.stderr)
 
     try:
-        text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error))
+        text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error), client, model=global_model)
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -444,7 +449,7 @@ def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
 
 def fix_predict_py(predict_contents, error, repo_path, *, attempt=0):
     try:
-        text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path))
+        text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path), client, model=global_model)
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -474,7 +479,9 @@ def fix_cog_yaml(cog_yaml_contents, predict_contents, error, *, attempt=0):
     try:
         text = call_gpt(
             fix_cog_yaml_prompt(cog_yaml_contents, predict_contents, error),
+            client,
             temperature=0.5 + attempt / 5,
+            model=global_model
         )
     except MaxTokensExceeded:
         if attempt == 5:
@@ -559,6 +566,17 @@ def read_file(path):
     help="OpenAI API key (optional, defaults to the environment variable OPENAI_API_KEY)",
 )
 @click.option(
+    "--replicate-api-token",
+    default=os.environ.get("REPLICATE_API_TOKEN", ""),
+    help="Replicate API key (optional, defaults to the environment variable )"
+)
+@click.option(
+    "-m",
+    "--model",
+    default="gpt-4",
+    help="Which model to use. If gpt-4, will use OpenAI, else will use Replicate"
+)
+@click.option(
     "-n",
     "--attempts",
     default=5,
@@ -591,20 +609,39 @@ def read_file(path):
 def autocog(
     repo,
     openai_api_key,
+    replicate_api_token,
+    model,
     attempts,
     predict_command,
     tell,
     initialize,
     continue_from_existing,
 ):
-    if not openai_api_key:
+    if model not in OPENAI_MODELS + REPLICATE_MODELS:
         print(
-            "OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable or pass it to autocog with the -k/--openai-api-key parameter.",
+            'You must choose a model from the following list: "' + '", "'.join(OPENAI_MODELS + REPLICATE_MODELS) + '"',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+        
+    if model in OPENAI_MODELS and not openai_api_key:
+        print(
+            f"OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable, pass it to autocog with the -k/--openai-api-key parameter, or choose a Replicate hosted model with the -m/--model parameter",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if model in REPLICATE_MODELS and not replicate_api_token:
+        print(
+            "Replicate API token was not specified. Either set the REPLICATE_API_TOKEN environment variable, pass it to autocog with the -k/--openai-api-key parameter, or choose an OpenAI hosted model with the -m/--model parameter",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    set_openai_api_key(openai_api_key)
+
+    global client
+    global global_model
+    client = initialize_client(openai_api_key if model in OPENAI_MODELS else replicate_api_token, base_url=(None if model in OPENAI_MODELS else "https://openai-proxy.replicate.com/v1"))
+    global_model = model
 
     repo_path = repo or os.getcwd()
 
