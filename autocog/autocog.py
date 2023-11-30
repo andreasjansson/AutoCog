@@ -27,6 +27,7 @@ def file_end(filename):
 
 
 COG_YAML_EXAMPLE = """build:
+  # only include the packages you actually need
   gpu: true
   system_packages:
     - "libgl1-mesa-glx"
@@ -35,6 +36,7 @@ COG_YAML_EXAMPLE = """build:
   python_packages:
     - "torch==1.8.1"
 predict: "predict.py:Predictor"
+# This is all you need - you don't need any additional properties!
 """
 PREDICT_PY_EXAMPLE = '''from cog import BasePredictor, Input, Path
 import torch
@@ -43,6 +45,7 @@ class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
         self.model = torch.load("./weights.pth")
+        # You don't need to do this if there aren't any weights to load!
 
     # The arguments and types the model takes as input
     def predict(self,
