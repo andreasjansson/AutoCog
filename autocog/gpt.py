@@ -3,7 +3,7 @@ import time
 
 from openai import APIError, OpenAI, RateLimitError
 
-SYSTEM_PROMPT = "You are an expert Python machine learning developer."
+SYSTEM_PROMPT = "You are an expert Python machine learning developer. You provide answers with no additional commentary."
 
 
 class MaxTokensExceeded(BaseException):
@@ -21,25 +21,45 @@ def initialize_client(api_key, base_url=None):
     return client
 
 
-def call_gpt(messages, client, *, temperature=0.5, model="gpt-4"):
+def call_gpt(messages, client, *, temperature=0.5, model="gpt-4", tools=None):
+    print(messages)
+    print("===================")
     if type(messages) == str:
         messages = [{"role": "user", "content": messages}]
 
     try:
-        response = client.chat.completions.create(
-            model=model,  # gpt-4-32k
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-            ]
-            + messages,
-            n=1,
-            stop=None,
-            temperature=temperature,
-            stream=True,
-        )
+        if tools:
+            response = client.chat.completions.create(
+                model=model,  # gpt-4-32k
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                ]
+                + messages,
+                n=1,
+                stop=None,
+                temperature=temperature,
+                stream=True,
+                tools=tools,
+                response_format={"type": "json_object"},
+            )
+        else:
+            response = client.chat.completions.create(
+                model=model,  # gpt-4-32k
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                ]
+                + messages,
+                n=1,
+                stop=None,
+                temperature=temperature,
+                stream=True,
+            )
     except RateLimitError as e:
         time.sleep(10)
         print(
