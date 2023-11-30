@@ -59,7 +59,10 @@ def call_gpt(messages, client, *, temperature=0.5, model="gpt-4"):
     for chunk in response:
         if not chunk:
             continue
-        chunk_text = chunk.choices[0].delta
+        if model == "meta/llama-2-70b-chat":
+            chunk_text = chunk.choices[0].delta
+        else:
+            chunk_text = chunk.choices[0].delta.content
         if chunk_text == None:
             continue
         text += chunk_text
