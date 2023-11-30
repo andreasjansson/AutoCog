@@ -1,20 +1,21 @@
-import time
-from collections import deque
-import sys
-import wave
 import array
-import re
-import click
 import os
+import re
 import subprocess
+import sys
 import tempfile
+import time
+import wave
+from collections import deque
 
+import click
+import cv2
+import numpy as np
 from PIL import Image
 from pydub import AudioSegment
-import cv2
 
 from .cache import cached, purge_cache
-from .gpt import call_gpt, MaxTokensExceeded, set_openai_api_key
+from .gpt import MaxTokensExceeded, call_gpt, initialize_client
 
 
 def file_start(filename):
@@ -26,6 +27,7 @@ def file_end(filename):
 
 
 COG_YAML_EXAMPLE = """build:
+  # only include the packages you actually need
   gpu: true
   system_packages:
     - "libgl1-mesa-glx"
@@ -34,6 +36,7 @@ COG_YAML_EXAMPLE = """build:
   python_packages:
     - "torch==1.8.1"
 predict: "predict.py:Predictor"
+# This is all you need - you don't need any additional properties!
 """
 PREDICT_PY_EXAMPLE = '''from cog import BasePredictor, Input, Path
 import torch
@@ -42,6 +45,7 @@ class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
         self.model = torch.load("./weights.pth")
+        # You don't need to do this if there aren't any weights to load!
 
     # The arguments and types the model takes as input
     def predict(self,
@@ -65,18 +69,25 @@ Below is an example of a cog.yaml file and a predict.py file.
 {file_end("predict.py")}
 """
 
+OPENAI_MODELS = ["gpt-3.5-turbo", "gpt-4", "gpt-4-32k"]
+REPLICATE_MODELS = ["meta/llama-2-70b-chat"]
+
 
 def cog_predict_prompt(predict_contents):
     return f"""
 Below is an example of a cog predict command:
 
+<start_of_command>
 cog predict -i input1=@input.jpg -i input2=foo
+<end_of_command>
 
-Return a cog predict command for the following predict.py file (and return only the prompt, no other text):
+Return a cog predict command for the following predict.py file:
 
 ```
 {predict_contents}
 ```
+
+Return with the <start_of_command> and <end_of_command> tokens in the line before and after the command, so I can parse the response.
 """
 
 
@@ -157,11 +168,13 @@ def order_paths_prompt(paths, readme_contents):
     prompt = f"""
 Given the file paths and readme below, order them by how relevant they are for inference and in particular for building a Replicate prediction model with Cog. Return the ordered file paths (a maximum of 25 paths) in the following format (and make sure to not include anything else than the list of file paths):
 
+<start_of_paths>
 most_relevant.py
 second_most_relevant.py
 third_most_relevant.py
 [...]
 least_relevant.py
+<end_of_paths>
 
 Here are the paths:
 
@@ -169,7 +182,16 @@ Here are the paths:
 
 End of paths. Below is the readme:
 
+-- README_START
 {readme_contents}
+-- README_END
+
+Return ONLY the ordered list of paths, with no additional commentary.
+DO NOT say "Here are the ordered file paths" or "Sure, here are the ordered file paths, with the most relevant path first:", or "Ordering files based on importance..." or anything similar.
+DO NOT include the example paths, like most_relevant.py, only include the actual paths present.
+
+Include the <start_of_paths> and <end_of_paths> tokens so I can parse your output.
+
 """
     return prompt
 
@@ -194,7 +216,39 @@ def order_paths(repo_path, *, attempt=0, readme_contents=None):
                 readme_contents = f.read()
 
     try:
-        content = call_gpt(order_paths_prompt(paths, readme_contents))
+        if client.base_url == "https://openai-proxy.replicate.com/v1":
+            content = call_gpt(
+                order_paths_prompt(paths, readme_contents),
+                client,
+                model=global_model,
+                tools=[
+                    {
+                        type: "function",
+                        function: {
+                            "name": "get_important_files",
+                            "description": "Get the current weather in a given location",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "paths_list": {
+                                        "type": "string",
+                                        "description": "The paths in the repo",
+                                    },
+                                    "readme_contents": {
+                                        "type": "string",
+                                        "description": "The contents of the readme",
+                                    },
+                                },
+                                "required": ["paths_list", "readme_contents"],
+                            },
+                        },
+                    }
+                ],
+            )
+        else:
+            content = call_gpt(
+                order_paths_prompt(paths, readme_contents), client, model=global_model
+            )
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -204,6 +258,10 @@ def order_paths(repo_path, *, attempt=0, readme_contents=None):
         )
 
     ordered_paths = content.strip().splitlines()
+    ordered_paths = ordered_paths[
+        ordered_paths.index("<start_of_paths>")
+        + 1 : ordered_paths.index("<end_of_paths>")
+    ]
     if set(ordered_paths) - set(paths):
         if attempt == 5:
             raise ValueError("Failed to order paths")
@@ -264,7 +322,9 @@ def generate_files(repo_path, paths, tell, *, attempt=0):
                         repo_path, paths, tell, max_length=max_lengths[attempt]
                     ),
                 },
-            ]
+            ],
+            client,
+            model=global_model,
         )
     except MaxTokensExceeded:
         if attempt == len(max_lengths):
@@ -312,7 +372,7 @@ def find_python_files(repo_path, *, relative=False):
 
 
 def generate_predict_command(predict_contents):
-    return call_gpt(cog_predict_prompt(predict_contents))
+    return call_gpt(cog_predict_prompt(predict_contents), client, model=global_model)
 
 
 def file_from_gpt_response(content, filename):
@@ -422,7 +482,11 @@ def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
     print("Diagnosing source of error: ", file=sys.stderr)
 
     try:
-        text = call_gpt(diagnose_error_prompt(predict_contents, predict_command, error))
+        text = call_gpt(
+            diagnose_error_prompt(predict_contents, predict_command, error),
+            client,
+            model=global_model,
+        )
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -444,7 +508,11 @@ def diagnose_error(predict_contents, predict_command, error, *, attempt=0):
 
 def fix_predict_py(predict_contents, error, repo_path, *, attempt=0):
     try:
-        text = call_gpt(fix_predict_py_prompt(predict_contents, error, repo_path))
+        text = call_gpt(
+            fix_predict_py_prompt(predict_contents, error, repo_path),
+            client,
+            model=global_model,
+        )
     except MaxTokensExceeded:
         if attempt == 5:
             raise
@@ -474,7 +542,9 @@ def fix_cog_yaml(cog_yaml_contents, predict_contents, error, *, attempt=0):
     try:
         text = call_gpt(
             fix_cog_yaml_prompt(cog_yaml_contents, predict_contents, error),
+            client,
             temperature=0.5 + attempt / 5,
+            model=global_model,
         )
     except MaxTokensExceeded:
         if attempt == 5:
@@ -559,6 +629,17 @@ def read_file(path):
     help="OpenAI API key (optional, defaults to the environment variable OPENAI_API_KEY)",
 )
 @click.option(
+    "--replicate-api-token",
+    default=os.environ.get("REPLICATE_API_TOKEN", ""),
+    help="Replicate API key (optional, defaults to the environment variable )",
+)
+@click.option(
+    "-m",
+    "--model",
+    default="gpt-4",
+    help="Which model to use. If gpt-4, will use OpenAI, else will use Replicate",
+)
+@click.option(
     "-n",
     "--attempts",
     default=5,
@@ -591,20 +672,45 @@ def read_file(path):
 def autocog(
     repo,
     openai_api_key,
+    replicate_api_token,
+    model,
     attempts,
     predict_command,
     tell,
     initialize,
     continue_from_existing,
 ):
-    if not openai_api_key:
+    if model not in OPENAI_MODELS + REPLICATE_MODELS:
         print(
-            "OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable or pass it to autocog with the -k/--openai-api-key parameter.",
+            'You must choose a model from the following list: "'
+            + '", "'.join(OPENAI_MODELS + REPLICATE_MODELS)
+            + '"',
             file=sys.stderr,
         )
         sys.exit(1)
 
-    set_openai_api_key(openai_api_key)
+    if model in OPENAI_MODELS and not openai_api_key:
+        print(
+            f"OpenAI API key was not specified. Either set the OPENAI_API_KEY environment variable, pass it to autocog with the -k/--openai-api-key parameter, or choose a Replicate hosted model with the -m/--model parameter",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if model in REPLICATE_MODELS and not replicate_api_token:
+        print(
+            "Replicate API token was not specified. Either set the REPLICATE_API_TOKEN environment variable, pass it to autocog with the -k/--openai-api-key parameter, or choose an OpenAI hosted model with the -m/--model parameter",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    global client
+    global global_model
+    client = initialize_client(
+        openai_api_key if model in OPENAI_MODELS else replicate_api_token,
+        base_url=(
+            None if model in OPENAI_MODELS else "https://openai-proxy.replicate.com/v1"
+        ),
+    )
+    global_model = model
 
     repo_path = repo or os.getcwd()
 
@@ -640,6 +746,11 @@ def autocog(
 
     if not predict_command:
         predict_command = generate_predict_command(files["predict.py"])
+        predict_command = (
+            predict_command.split("<start_of_command>")[1]
+            .split("<end_of_command>")[0]
+            .strip()
+        )
     predict_command = create_files_for_predict_command(predict_command, repo_path)
     for attempt in range(attempts):
         success, stderr = run_cog_predict(predict_command, repo_path)

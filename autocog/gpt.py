@@ -1,54 +1,88 @@
 import sys
-import openai
+import time
 
+from openai import APIError, OpenAI, RateLimitError
 
-SYSTEM_PROMPT = "You are an expert Python machine learning developer."
+SYSTEM_PROMPT = "You are an expert Python machine learning developer. You provide answers with no additional commentary."
 
 
 class MaxTokensExceeded(BaseException):
     pass
 
 
-def set_openai_api_key(api_key):
-    openai.api_key = api_key
+def initialize_client(api_key, base_url=None):
+    if base_url:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+    else:
+        client = OpenAI(api_key=api_key)
+    return client
 
 
-def call_gpt(messages, *, temperature=0.5):
+def call_gpt(messages, client, *, temperature=0.5, model="gpt-4", tools=None):
+    print(messages)
+    print("===================")
     if type(messages) == str:
         messages = [{"role": "user", "content": messages}]
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # gpt-4-32k
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-            ]
-            + messages,
-            n=1,
-            stop=None,
-            temperature=temperature,
-            stream=True,
-        )
-    except openai.error.RateLimitError as e:
+        if tools:
+            response = client.chat.completions.create(
+                model=model,  # gpt-4-32k
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                ]
+                + messages,
+                n=1,
+                stop=None,
+                temperature=temperature,
+                stream=True,
+                tools=tools,
+                response_format={"type": "json_object"},
+            )
+        else:
+            response = client.chat.completions.create(
+                model=model,  # gpt-4-32k
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                ]
+                + messages,
+                n=1,
+                stop=None,
+                temperature=temperature,
+                stream=True,
+            )
+    except RateLimitError as e:
         time.sleep(10)
         print(
             "Exceeded OpenAI rate limit, sleeping for ten seconds and retrying...",
             file=sys.stderr,
         )
         return call_gpt(messages, temperature=temperature)
-    except openai.error.InvalidRequestError as e:
-        if "This model's maximum context length is" in str(e):
-            raise MaxTokensExceeded()
-        raise
+    # except InvalidRequestError as e:
+    #     if "This model's maximum context length is" in str(e):
+    #         raise MaxTokensExceeded()
+    #     raise
+    except APIError as e:
+        print("Some other error")
+        raise Exception from e
 
     text = ""
     for chunk in response:
         if not chunk:
             continue
-        chunk_text = chunk["choices"][0]["delta"].get("content", None)
+        if model == "meta/llama-2-70b-chat":
+            chunk_text = chunk.choices[0].delta
+        else:
+            chunk_text = chunk.choices[0].delta.content
         if chunk_text == None:
             continue
         text += chunk_text
