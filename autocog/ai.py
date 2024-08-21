@@ -124,13 +124,13 @@ class AI:
     def save_chat_history(self):
         with self.chat_history_path.open("w") as f:
             f.write(f"## SYSTEM:\n\n{self.system_prompt}\n\n")
-            for message in self.messages:
+            for message in self.history:
                 role = message["role"].upper()
                 content = message["content"]
                 f.write(f"## {role}:\n\n{content}\n\n")
 
     def load_chat_history(self):
-        self.messages = []
+        self.history = []
         current_role = None
         current_content = []
 
@@ -145,7 +145,7 @@ class AI:
                     if current_role == "SYSTEM":
                         self.system_prompt = content
                     else:
-                        self.messages.append(
+                        self.history.append(
                             {"role": current_role.lower(), "content": content}
                         )
                     current_content = []
@@ -159,4 +159,4 @@ class AI:
             if current_role == "SYSTEM":
                 self.system_prompt = content
             else:
-                self.messages.append({"role": current_role.lower(), "content": content})
+                self.history.append({"role": current_role.lower(), "content": content})

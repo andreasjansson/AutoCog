@@ -10,7 +10,7 @@ least_relevant.py
 
 Here are the paths:
 
-{% for path in python_paths %}
+{% for path in paths %}
 {{ path }}
 {% endfor %}
 

@@ -209,7 +209,7 @@ def initialize_project(ai: AI, repo_path: Path):
     "-a",
     "--ai-provider",
     default="anthropic",
-    choices=["anthropic", "openai"],
+    type=click.Choice(["anthropic", "openai"], case_sensitive=False),
     help="AI provider",
 )
 @click.option(

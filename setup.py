@@ -18,6 +18,8 @@ setup(
         "Pillow",
         "pydub",
         "opencv-python",
+        "anthropic",
+        "jinja2"
     ],
     entry_points={
         "console_scripts": [
