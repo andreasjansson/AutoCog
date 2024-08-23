@@ -14,10 +14,11 @@ pip install autocog
 
 ## Usage
 
-First, set your OpenAI API key in an environment variable
+First, specify your AI provider with `--ai-provider` and set your OpenAI/Anthropic API key in an environment variable
 
 ```
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-...
 ```
 
 In the repo you want to cog-ify, run
