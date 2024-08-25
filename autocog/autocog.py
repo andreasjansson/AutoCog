@@ -5,6 +5,7 @@ import click
 import os
 import subprocess
 import requests
+from pypi_simple import PyPISimple
 
 from .ai import AI
 from . import prompts
@@ -79,6 +80,14 @@ def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]
         if readme_path.exists():
             return filename, readme_path.read_text()
     return None, None
+
+
+def get_package_info(package_name):
+    # Initialize PyPI client
+    client = PyPISimple()
+    # Get package information
+    package_info = client.get_project_page(package_name)
+    return package_info
 
 
 @retry(3)
