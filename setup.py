@@ -19,7 +19,8 @@ setup(
         "pydub",
         "opencv-python",
         "anthropic",
-        "jinja2"
+        "jinja2",
+        "pypi-simple"
     ],
     entry_points={
         "console_scripts": [

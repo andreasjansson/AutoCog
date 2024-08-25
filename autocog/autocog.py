@@ -217,10 +217,14 @@ def parse_cog_predict_error(stderr: str, *, max_length=20000) -> str:
 def diagnose_error(ai: AI, predict_command: str, error: str) -> str:
     print("Diagnosing source of error: ", file=sys.stderr)
 
-    text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
-    if text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
+    diagnose_text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
+    print("Diagnose error")
+    print(diagnose_text)
+    parse_text = ai.call(prompts.parse_error(predict_command=predict_command, error=truncate_error(error)))
+
+    if diagnose_text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
         raise ValueError("Failed to diagnose error")
-    return text
+    return diagnose_text
 
 
 @retry(5)
