@@ -18,7 +18,7 @@ from .prompts import (
     COMMAND_END,
     ERROR_COG_PREDICT,
     ERROR_PREDICT_PY,
-    ERROR_COG_YAML,
+    ERROR_COG_YAML
 )
 from .retry import retry
 from .testdata import create_empty_file
@@ -82,11 +82,21 @@ def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]
     return None, None
 
 
-def get_package_info(package_name):
+def get_packages_info(ai: AI, repo_path: Path):
+    cog_yaml_path = repo_path / "cog.yaml"
+    if cog_yaml_path.exists():
+        cog_yaml = cog_yaml_path.read_text()
+    else:
+        cog_yaml = None
+    content = ai.call(prompts.get_packages(cog_contents=cog_yaml))
+    print("Packages")
+    print(content)
+
     # Initialize PyPI client
     client = PyPISimple()
     # Get package information
-    package_info = client.get_project_page(package_name)
+    package_info =  []
+    #package_info = client.get_project_page(package_name)
     return package_info
 
 
@@ -218,13 +228,12 @@ def diagnose_error(ai: AI, predict_command: str, error: str) -> str:
     print("Diagnosing source of error: ", file=sys.stderr)
 
     diagnose_text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
-    print("Diagnose error")
-    print(diagnose_text)
-    parse_text = ai.call(prompts.parse_error(predict_command=predict_command, error=truncate_error(error)))
+    package_error = ai.call(prompts.package_error(predict_command=predict_command, error=truncate_error(error)))
+    package_error = package_error == "True"
 
     if diagnose_text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
         raise ValueError("Failed to diagnose error")
-    return diagnose_text
+    return diagnose_text, package_error
 
 
 @retry(5)
@@ -352,7 +361,10 @@ def autocog(
         )
 
         error = parse_cog_predict_error(stderr)
-        error_source = diagnose_error(ai, predict_command, error)
+        error_source, package_error = diagnose_error(ai, predict_command, error)
+        if package_error:
+            get_packages_info(ai, repo_path)
+
         if error_source == ERROR_PREDICT_PY:
             predict_py = fix_predict_py(ai)
             (repo_path / "predict.py").write_text(predict_py)

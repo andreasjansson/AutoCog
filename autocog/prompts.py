@@ -75,8 +75,12 @@ def diagnose_error(predict_command: str, error: str) -> str:
     return render("diagnose_error", predict_command=predict_command, error=error)
 
 
-def parse_error(predict_command: str, error: str) -> str:
-    return render("parse_error", predict_command=predict_command, error=error)
+def package_error(predict_command: str, error: str) -> str:
+    return render("package_error", predict_command=predict_command, error=error)
+
+
+def get_packages(cog_contents: str | None) -> str:
+    return render("get_packages", cog_contents=cog_contents)
 
 
 system = render("system")
