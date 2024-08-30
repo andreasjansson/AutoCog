@@ -89,14 +89,16 @@ def get_packages_info(ai: AI, repo_path: Path):
     else:
         cog_yaml = None
     content = ai.call(prompts.get_packages(cog_contents=cog_yaml))
-    print("Packages")
-    print(content)
 
     # Initialize PyPI client
     client = PyPISimple()
     # Get package information
     package_info =  []
-    #package_info = client.get_project_page(package_name)
+    for package in content.strip().split('\n'):
+        if '==' in package:
+            package_name, package_version = package.split('==')
+            package_info = client.get_project_page(package_name).packages
+            print(package_info)
     return package_info
 
 
@@ -362,6 +364,10 @@ def autocog(
 
         error = parse_cog_predict_error(stderr)
         error_source, package_error = diagnose_error(ai, predict_command, error)
+        print("Error source")
+        print(error_source)
+        print("Package error")
+        print(package_error)
         if package_error:
             get_packages_info(ai, repo_path)
 
