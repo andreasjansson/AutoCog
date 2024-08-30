@@ -96,10 +96,11 @@ class AI:
     def _call_anthropic(
         self, messages: List[Dict[str, str]], temperature: float
     ) -> str:
-        response = self.client.messages.create(
+        # Use Anthropic's beta prompt caching
+        response = self.client.beta.prompt_caching.messages.create(
             model=self.model,
             messages=messages,
-            system=self.system_prompt,
+            system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
             temperature=temperature,
             max_tokens=8192,
             stream=True,
