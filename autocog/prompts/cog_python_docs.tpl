@@ -235,7 +235,7 @@ Each parameter of the `predict()` method must be annotated with a type. The meth
 
 ## `File()`
 
-> [!WARNING]
+> [!WARNING]  
 > `cog.File` is deprecated and will be removed in a future version of Cog. Use [`cog.Path`](#path) instead.
 
 The `cog.File` object is used to get files in and out of models. It represents a _file handle_.
@@ -294,7 +294,7 @@ from cog import BasePredictor, Secret
 class Predictor(BasePredictor):
     def predict(self, api_token: Secret) -> None:
         # Prints '**********'
-        print(api_token)
+        print(api_token)        
 
         # Use get_secret_value method to see the secret's content.
         print(api_token.get_secret_value())
@@ -314,8 +314,8 @@ Models uploaded to Replicate treat secret inputs differently throughout its syst
 When you create a prediction on Replicate,
 any value passed to a `Secret` input is redacted after being sent to the model.
 
-> [!WARNING]
-> Passing secret values to untrusted models can result in
+> [!WARNING]  
+> Passing secret values to untrusted models can result in 
 > unintended disclosure, exfiltration, or misuse of sensitive data.
 
 ## `List`

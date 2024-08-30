@@ -3,6 +3,8 @@ from pathlib import Path
 from jinja2 import nodes, Environment, FileSystemLoader
 from jinja2.ext import Extension
 
+COG_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
+PREDICT_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
 FILE_START = "-- FILE_START: "
 FILE_END = "-- FILE_END: "
 ERROR_COG_PREDICT = "cog_predict"

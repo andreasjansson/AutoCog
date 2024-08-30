@@ -4,10 +4,13 @@ import re
 import click
 import os
 import subprocess
+import requests
 
 from .ai import AI
 from . import prompts
 from .prompts import (
+    COG_DOCS,
+    PREDICT_DOCS,
     file_start,
     file_end,
     ERROR_COG_PREDICT,
@@ -44,6 +47,27 @@ def order_paths(
         ordered_paths[i] = repo_path / path
 
     return ordered_paths
+
+
+def pull_docs():
+    base_dir = os.path.dirname(__file__)
+    prompts_dir = os.path.join(base_dir, "prompts")
+
+    cog_docs = requests.get(COG_DOCS)
+    if cog_docs.status_code == 200:
+        print("Successfully pulled down documentation for cog.yaml")
+        with open(os.path.join(prompts_dir, "cog_yaml_docs.tpl"), 'wb') as f:
+            f.write(cog_docs.content)
+    else:
+        print("Failed to download cog.yaml documentation")
+
+    predict_docs = requests.get(PREDICT_DOCS)
+    if predict_docs.status_code == 200:
+        print("Successfully pulled down documentation for predict.py")
+        with open(os.path.join(prompts_dir, "cog_python_docs.tpl"), 'wb') as f:
+            f.write(predict_docs.content)
+    else:
+        print("Failed to download predict.py documentation")
 
 
 def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]:
@@ -251,7 +275,7 @@ def autocog(
     initialize: bool,
 ):
     repo_path = repo or Path(os.getcwd())
-
+    pull_docs()
     ai = AI(
         system_prompt=prompts.system,
         provider=ai_provider,
