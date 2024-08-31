@@ -106,7 +106,7 @@ Note that these are the versions supported **in the Docker container**, not your
 
 ### `run`
 
-A list of setup commands to run in the environment after your system packages and Python packages have been installed. If you're familiar with Docker, it's like a `RUN` instruction in your `Dockerfile`.
+A list of setup commands to run in the environment after your system packages and Python packages have been installed. If you're familiar with Docker, it's like a `RUN` instruction in your `Dockerfile`.
 
 For example:
 
@@ -158,7 +158,7 @@ r8.im is Replicate's registry, but this can be any Docker registry.
 
 If you don't set this, then a name will be generated from the directory name.
 
-If you set this, then you can run `cog push` without specifying the model name.
+If you set this, then you can run `cog push` without specifying the model name. 
 
 If you specify an image name argument when pushing (like `cog push your-username/custom-model-name`), the argument will be used and the value of `image` in cog.yaml will be ignored.
 
@@ -172,4 +172,4 @@ For example:
 predict: "predict.py:Predictor"
 ```
 
-See [the Python API documentation for more information](python.md.)
+See [the Python API documentation for more information](python.md).
