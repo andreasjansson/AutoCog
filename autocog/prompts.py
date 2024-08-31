@@ -7,6 +7,8 @@ COG_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
 PREDICT_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
 FILE_START = "-- FILE_START: "
 FILE_END = "-- FILE_END: "
+COMMAND_START = "-- COMMAND_START"
+COMMAND_END = "-- COMMAND_END"
 ERROR_COG_PREDICT = "cog_predict"
 ERROR_PREDICT_PY = "predict.py"
 ERROR_COG_YAML = "cog.yaml"
@@ -41,6 +43,8 @@ def render(template_name, **kwargs):
     )
     template = env.get_template(template_name + ".tpl")
 
+    kwargs["command_end"] = COMMAND_END
+    kwargs["command_start"] = COMMAND_START
     kwargs["ERROR_COG_PREDICT"] = ERROR_COG_PREDICT
     kwargs["ERROR_COG_YAML"] = ERROR_COG_YAML
     kwargs["ERROR_PREDICT_PY"] = ERROR_PREDICT_PY

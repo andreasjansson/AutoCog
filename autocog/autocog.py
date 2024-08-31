@@ -13,6 +13,8 @@ from .prompts import (
     PREDICT_DOCS,
     file_start,
     file_end,
+    COMMAND_START,
+    COMMAND_END,
     ERROR_COG_PREDICT,
     ERROR_PREDICT_PY,
     ERROR_COG_YAML,
@@ -168,7 +170,20 @@ def run_cog_predict(repo_path: Path, predict_command: str) -> tuple[bool, str]:
     return False, stderr
 
 
+def cog_predict_from_gpt_response(content: str) -> str:
+    pattern = re.compile(
+        rf"(?<={re.escape(COMMAND_START)}\n)([\s\S]*?)(?=\n{re.escape(COMMAND_END)})",
+        re.MULTILINE | re.DOTALL,
+    )
+    matches = pattern.search(content)
+    if not matches:
+        raise ValueError(f"Failed to generate cog predict")
+    return matches[1].strip()
+
+
 def create_files_for_predict_command(repo_path: Path, predict_command: str) -> str:
+    print("Parsing predict command...")
+    predict_command = cog_predict_from_gpt_response(predict_command)
     file_inputs = re.findall(r"@([\w.]+)", predict_command)
 
     for filename in file_inputs:
@@ -308,6 +323,8 @@ def autocog(
 
     predict_command = create_files_for_predict_command(repo_path, predict_command)
     for attempt in range(attempts):
+        print("Predict command")
+        print(predict_command)
         success, stderr = run_cog_predict(repo_path, predict_command)
         if success:
             return
