@@ -93,12 +93,18 @@ def get_packages_info(ai: AI, repo_path: Path):
     # Initialize PyPI client
     client = PyPISimple()
     # Get package information
-    package_info =  []
+    package_info = {}
     for package in content.strip().split('\n'):
-        if '==' in package:
-            package_name, package_version = package.split('==')
-            package_info = client.get_project_page(package_name).packages
-            print(package_info)
+        package_info[package] = set()
+        if '==' not in package:
+            # If no version is explicitly given, query PyPi
+            packages_info = client.get_project_page(package).packages
+            for p_info in packages_info:
+                package_info[package].add(p_info.version)
+        else:
+            # If version is explicitly given
+            package_version = package.split('==')[1]
+            package_info[package].add(package_version)
     return package_info
 
 
@@ -114,6 +120,9 @@ def generate_initial(
     requirements_file = repo_path / "requirements.txt"
     if requirements_file.exists():
         files["requirements.txt"] = requirements_file.read_text()
+        package_versions = None
+    else:
+        package_versions = get_packages_info(ai, repo_path)
 
     poetry_file = repo_path / "pyproject.toml"
     if poetry_file.exists():
@@ -135,7 +144,7 @@ def generate_initial(
 
     content = ai.call(
         prompts.generate_initial(
-            files=files, tell=tell, predict_py=predict_py, cog_yaml=cog_yaml
+            files=files, tell=tell, predict_py=predict_py, cog_yaml=cog_yaml, package_versions=package_versions
         )
     )
     cog_yaml = file_from_gpt_response(content, "cog.yaml")

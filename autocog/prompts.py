@@ -61,6 +61,7 @@ def generate_initial(
     tell: str | None,
     predict_py: str | None,
     cog_yaml: str | None,
+    package_versions: dict[set] | None,
 ) -> str:
     return render(
         "generate_initial",
@@ -68,6 +69,7 @@ def generate_initial(
         tell=tell,
         predict_py=predict_py,
         cog_yaml=cog_yaml,
+        package_versions=package_versions
     )
 
 
@@ -81,6 +83,10 @@ def package_error(predict_command: str, error: str) -> str:
 
 def get_packages(cog_contents: str | None) -> str:
     return render("get_packages", cog_contents=cog_contents)
+
+
+def get_packages_versions(packages: str | None) -> str:
+    return render("get_packages_versions", packages=packages)
 
 
 system = render("system")
