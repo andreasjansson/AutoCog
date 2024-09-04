@@ -5,6 +5,7 @@ import click
 import os
 import subprocess
 import requests
+from pypi_simple import errors as pypi_errors
 from pypi_simple import PyPISimple
 
 from .ai import AI
@@ -43,11 +44,12 @@ def order_paths(
     content = ai.call(prompts.order_paths(paths=paths, readme_contents=readme_contents))
 
     ordered_paths = [Path(p) for p in content.strip().splitlines()]
-    if set(ordered_paths) - set(paths):
-        raise ValueError("Failed to order paths")
-
+    
     for i, path in enumerate(ordered_paths):
         ordered_paths[i] = repo_path / path
+
+    if set(ordered_paths) - set(paths):
+        raise ValueError("Failed to order paths")
 
     return ordered_paths
 
@@ -98,9 +100,12 @@ def get_packages_info(ai: AI, repo_path: Path):
         package_info[package] = set()
         if '==' not in package:
             # If no version is explicitly given, query PyPi
-            packages_info = client.get_project_page(package).packages
-            for p_info in packages_info:
-                package_info[package].add(p_info.version)
+            try:
+                packages_info = client.get_project_page(package).packages
+                for p_info in packages_info:
+                    package_info[package].add(p_info.version)
+            except pypi_errors.NoSuchProjectError:
+                pass
         else:
             # If version is explicitly given
             package_version = package.split('==')[1]
