@@ -35,7 +35,7 @@ class AI:
 
     def _get_default_model(self):
         if self.provider == "openai":
-            return "gpt-4o-2024-08-06"
+            return "gpt-4o"
         elif self.provider == "anthropic":
             return "claude-3-5-sonnet-20240620"
         else:
@@ -77,7 +77,7 @@ class AI:
     def _call_openai(self, messages: List[Dict[str, str]], temperature: float) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "system", "content": system_prompt}] + messages,
+            messages=[{"role": "system", "content": self.system_prompt}] + messages,
             temperature=temperature,
             stream=True,
         )

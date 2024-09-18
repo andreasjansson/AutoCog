@@ -5,6 +5,9 @@ import click
 import os
 import subprocess
 import requests
+from packaging import version
+from pypi_simple import errors as pypi_errors
+from pypi_simple import PyPISimple
 
 from .ai import AI
 from . import prompts
@@ -17,7 +20,7 @@ from .prompts import (
     COMMAND_END,
     ERROR_COG_PREDICT,
     ERROR_PREDICT_PY,
-    ERROR_COG_YAML,
+    ERROR_COG_YAML
 )
 from .retry import retry
 from .testdata import create_empty_file
@@ -42,11 +45,12 @@ def order_paths(
     content = ai.call(prompts.order_paths(paths=paths, readme_contents=readme_contents))
 
     ordered_paths = [Path(p) for p in content.strip().splitlines()]
-    if set(ordered_paths) - set(paths):
-        raise ValueError("Failed to order paths")
-
+    
     for i, path in enumerate(ordered_paths):
         ordered_paths[i] = repo_path / path
+
+    if set(ordered_paths) - set(paths):
+        raise ValueError("Failed to order paths")
 
     return ordered_paths
 
@@ -81,6 +85,38 @@ def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]
     return None, None
 
 
+def get_packages_info(ai: AI, repo_path: Path):
+    cog_yaml_path = repo_path / "cog.yaml"
+    if cog_yaml_path.exists():
+        cog_yaml = cog_yaml_path.read_text()
+    else:
+        cog_yaml = None
+    content = ai.call(prompts.get_packages(cog_contents=cog_yaml))
+
+    # Initialize PyPI client
+    client = PyPISimple()
+    # Get package information
+    package_info = {}
+    for package in content.strip().split('\n'):
+        valid = True
+        versions = set()
+        if '==' not in package:
+            # If no version is explicitly given, query PyPi
+            try:
+                packages_info = client.get_project_page(package).packages
+                for p_info in packages_info:
+                    versions.add(p_info.version)
+            except pypi_errors.NoSuchProjectError:
+                valid = False
+        else:
+            # If version is explicitly given
+            package_version = package.split('==')[1]
+            versions.add(package_version)
+        if valid:
+            package_info[package] = sorted(versions, key=version.parse)
+    return package_info
+
+
 @retry(3)
 def generate_initial(
     ai: AI, repo_path: Path, paths: list[Path], tell: str | None
@@ -93,6 +129,10 @@ def generate_initial(
     requirements_file = repo_path / "requirements.txt"
     if requirements_file.exists():
         files["requirements.txt"] = requirements_file.read_text()
+        package_versions = None
+    else:
+        print("Getting package information...")
+        package_versions = get_packages_info(ai, repo_path)
 
     poetry_file = repo_path / "pyproject.toml"
     if poetry_file.exists():
@@ -114,7 +154,7 @@ def generate_initial(
 
     content = ai.call(
         prompts.generate_initial(
-            files=files, tell=tell, predict_py=predict_py, cog_yaml=cog_yaml
+            files=files, tell=tell, predict_py=predict_py, cog_yaml=cog_yaml, package_versions=package_versions
         )
     )
     cog_yaml = file_from_gpt_response(content, "cog.yaml")
@@ -208,10 +248,13 @@ def parse_cog_predict_error(stderr: str, *, max_length=20000) -> str:
 def diagnose_error(ai: AI, predict_command: str, error: str) -> str:
     print("Diagnosing source of error: ", file=sys.stderr)
 
-    text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
-    if text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
+    diagnose_text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
+    package_error = ai.call(prompts.package_error(predict_command=predict_command, error=truncate_error(error)))
+    package_error = package_error == "True"
+
+    if diagnose_text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
         raise ValueError("Failed to diagnose error")
-    return text
+    return diagnose_text, package_error
 
 
 @retry(5)
@@ -247,7 +290,7 @@ def initialize_project(ai: AI, repo_path: Path):
 @click.option(
     "-a",
     "--ai-provider",
-    default="anthropic",
+    default="openai",
     type=click.Choice(["anthropic", "openai"], case_sensitive=False),
     help="AI provider",
 )
@@ -339,7 +382,14 @@ def autocog(
         )
 
         error = parse_cog_predict_error(stderr)
-        error_source = diagnose_error(ai, predict_command, error)
+        error_source, package_error = diagnose_error(ai, predict_command, error)
+        print("Error source")
+        print(error_source)
+        print("Package error")
+        print(package_error)
+        if package_error:
+            get_packages_info(ai, repo_path)
+
         if error_source == ERROR_PREDICT_PY:
             predict_py = fix_predict_py(ai)
             (repo_path / "predict.py").write_text(predict_py)
