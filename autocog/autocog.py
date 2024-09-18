@@ -98,20 +98,22 @@ def get_packages_info(ai: AI, repo_path: Path):
     # Get package information
     package_info = {}
     for package in content.strip().split('\n'):
-        package_info[package] = set()
+        valid = True
+        versions = set()
         if '==' not in package:
             # If no version is explicitly given, query PyPi
             try:
                 packages_info = client.get_project_page(package).packages
                 for p_info in packages_info:
-                    package_info[package].add(p_info.version)
+                    versions.add(p_info.version)
             except pypi_errors.NoSuchProjectError:
-                pass
+                valid = False
         else:
             # If version is explicitly given
             package_version = package.split('==')[1]
-            package_info[package].add(package_version)
-        package_info[package] = sorted(package_info[package], key=version.parse)
+            versions.add(package_version)
+        if valid:
+            package_info[package] = sorted(versions, key=version.parse)
     return package_info
 
 
@@ -288,7 +290,7 @@ def initialize_project(ai: AI, repo_path: Path):
 @click.option(
     "-a",
     "--ai-provider",
-    default="anthropic",
+    default="openai",
     type=click.Choice(["anthropic", "openai"], case_sensitive=False),
     help="AI provider",
 )
