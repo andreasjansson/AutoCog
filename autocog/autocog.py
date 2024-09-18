@@ -5,6 +5,7 @@ import click
 import os
 import subprocess
 import requests
+from packaging import version
 from pypi_simple import errors as pypi_errors
 from pypi_simple import PyPISimple
 
@@ -110,6 +111,7 @@ def get_packages_info(ai: AI, repo_path: Path):
             # If version is explicitly given
             package_version = package.split('==')[1]
             package_info[package].add(package_version)
+        package_info[package] = sorted(package_info[package], key=version.parse)
     return package_info
 
 
@@ -127,6 +129,7 @@ def generate_initial(
         files["requirements.txt"] = requirements_file.read_text()
         package_versions = None
     else:
+        print("Getting package information...")
         package_versions = get_packages_info(ai, repo_path)
 
     poetry_file = repo_path / "pyproject.toml"
