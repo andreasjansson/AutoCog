@@ -6,31 +6,7 @@ These are the Cog Python docs for predict.py:
 
 ---
 
-These are the Cog YAML docs for cog.yaml:
-
-{% include "cog_yaml_docs.tpl" %}
-
----
-
-Below is an example cog.yaml:
-
-{% file_start "cog.yaml" %}
-
-build:
-  gpu: true
-  system_packages:
-    - "libgl1-mesa-glx"
-    - "libglib2.0-0"
-  python_version: "3.8"
-  python_packages:
-    - "torch==1.8.1"
-predict: "predict.py:Predictor"
-
-{% file_end "cog.yaml" %}
-
----
-
-Below is an example predit.py:
+Below is an example predict.py:
 
 {% file_start "predict.py" %}
 
@@ -93,3 +69,5 @@ class Predictor(BasePredictor):
         return output_path
 
 {% file_end "predict.py" %}
+
+Your job is to generate a predict.py file.

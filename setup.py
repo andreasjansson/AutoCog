@@ -9,7 +9,7 @@ setup(
     name="autocog",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version="0.0.9",
+    version="0.0.12",
     url="https://github.com/andreasjansson/AutoCog",
     packages=find_packages(),
     install_requires=[
@@ -26,5 +26,8 @@ setup(
         "console_scripts": [
             "autocog = autocog.autocog:autocog",
         ],
+    },
+    package_data={
+        "autocog": ["prompts/*.tpl"],
     },
 )

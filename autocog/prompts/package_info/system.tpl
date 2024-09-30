@@ -6,9 +6,4 @@ package3==v3.v3.v3
 [...]
 packagen
 
-{% if cog_content %}
-Here are the contents of cog.yaml: 
-{{ cog_contents }}
-{% endif %}
-
 Don't output anything else since I intend to parse the output and use it in a programmatic pipeline.

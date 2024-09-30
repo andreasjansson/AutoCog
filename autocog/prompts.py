@@ -53,10 +53,10 @@ def render(template_name, **kwargs):
 
 
 def order_paths(paths: list[Path], readme_contents: str | None) -> str:
-    return render("order_paths", paths=paths, readme_contents=readme_contents)
+    return render("order_paths/order_paths", paths=paths, readme_contents=readme_contents)
 
 
-def generate_initial(
+def generate_cog_yaml(
     files: dict[str, str],
     tell: str | None,
     predict_py: str | None,
@@ -64,7 +64,7 @@ def generate_initial(
     package_versions: dict[set] | None,
 ) -> str:
     return render(
-        "generate_initial",
+        "cog_generation/generate",
         files=files,
         tell=tell,
         predict_py=predict_py,
@@ -73,26 +73,43 @@ def generate_initial(
     )
 
 
+def generate_predict_py(
+    files: dict[str, str],
+    tell: str | None,
+    predict_py: str | None,
+) -> str:
+    return render(
+        "predict_generation/generate",
+        files=files,
+        tell=tell,
+        predict_py=predict_py
+    )
+
+
 def diagnose_error(predict_command: str, error: str) -> str:
-    return render("diagnose_error", predict_command=predict_command, error=error)
+    return render("error_diagnosis/diagnose_error", predict_command=predict_command, error=error)
 
 
 def package_error(predict_command: str, error: str) -> str:
-    return render("package_error", predict_command=predict_command, error=error)
+    return render("error_diagnosis/package_error", predict_command=predict_command, error=error)
 
 
-def get_packages(cog_contents: str | None) -> str:
-    return render("get_packages", cog_contents=cog_contents)
+def get_packages(packages: list[str] | None, cog_contents: str | None) -> str:
+    return render("package_info/get_packages", packages=packages, cog_contents=cog_contents)
 
 
-def get_packages_versions(packages: str | None) -> str:
-    return render("get_packages_versions", packages=packages)
+def cog_predict(predict_py: str) -> str:
+    return render("cog_predict/generate", predict_py=predict_py)
 
 
-system = render("system")
-cog_predict = render("cog_predict")
-fix_predict_py = render("fix_predict_py")
-fix_cog_yaml = render("fix_cog_yaml")
+order_paths_system = render("order_paths/system")
+package_info_system = render("package_info/system")
+cog_generation_system = render("cog_generation/system")
+predict_generation_system = render("predict_generation/system")
+error_diagnosis_system = render("error_diagnosis/system")
+cog_fixing_system = render("cog_fixing/system")
+predict_fixing_system = render("predict_fixing/system")
+cog_predict_system = render("cog_predict/system")
 
 
 def file_start(filename):

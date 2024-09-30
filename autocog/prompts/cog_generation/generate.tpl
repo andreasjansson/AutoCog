@@ -25,9 +25,9 @@ Here is a list of packages and valid versions:
 {% endfor %}
 {% endif %}
 
-Given the files above, {% if predict_py %}update predict.py{% else %}generate a predict.py file{% endif %} and {% if cog_yaml %}update cog.yaml{% else %}generate a cog.yaml file{% endif %}.
+Given the files above, {% if cog_yaml %}update cog.yaml{% else %}generate a cog.yaml file{% endif %}. Ensure that all Python packages must have pinned versions. Add short comments to describe what parts of the code made you decide on the different parts of cog.yaml. 
 
-In cog.yaml, ensure that all Python packages must have pinned versions. Also in cog.yaml, add short comments to describe what parts of the code made you decide on the different parts of cog.yaml. Wrap the contents of both files in the strings '{% file_start "filename" %}' and '{% file_end "filename" %}'. Don't output any other text before or after the files since I intend to execute the output that you generate in a Python programming environment.
+Wrap the contents of both files in the strings '{% file_start "filename" %}' and '{% file_end "filename" %}'. Don't output any other text before or after the files since I intend to execute the output that you generate in a Python programming environment.
 
 {% if tell %}
 Also make sure to follow these additional instructions: {{ tell }}
