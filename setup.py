@@ -27,4 +27,7 @@ setup(
             "autocog = autocog.autocog:autocog",
         ],
     },
+    package_data={
+        'autocog': ['autocog/prompts/*.tpl'],
+    },
 )
