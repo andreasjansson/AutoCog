@@ -1,3 +1,5 @@
+import csv
+from urllib.parse import urlparse
 from pathlib import Path
 import sys
 import re
@@ -12,15 +14,17 @@ from pypi_simple import PyPISimple
 from .ai import AI
 from . import prompts
 from .prompts import (
-    COG_DOCS,
-    PREDICT_DOCS,
+    COG_DOCS_URL,
+    PREDICT_DOCS_URL,
+    TORCH_COMPATIBILITY_URL,
     file_start,
     file_end,
     COMMAND_START,
     COMMAND_END,
     ERROR_COG_PREDICT,
     ERROR_PREDICT_PY,
-    ERROR_COG_YAML
+    ERROR_PYTHON_PACKAGES,
+    ERROR_COG_YAML,
 )
 from .retry import retry
 from .testdata import create_empty_file
@@ -45,7 +49,7 @@ def order_paths(
     content = ai.call(prompts.order_paths(paths=paths, readme_contents=readme_contents))
 
     ordered_paths = [Path(p) for p in content.strip().splitlines()]
-    
+
     for i, path in enumerate(ordered_paths):
         ordered_paths[i] = repo_path / path
 
@@ -55,25 +59,38 @@ def order_paths(
     return ordered_paths
 
 
-def pull_docs():
-    base_dir = os.path.dirname(__file__)
-    prompts_dir = os.path.join(base_dir, "prompts")
+def prompts_dir() -> Path:
+    base_dir = Path(__file__).parent
+    return base_dir / "prompts"
 
-    cog_docs = requests.get(COG_DOCS)
-    if cog_docs.status_code == 200:
-        print("Successfully pulled down documentation for cog.yaml")
-        with open(os.path.join(prompts_dir, "cog_yaml_docs.tpl"), 'wb') as f:
-            f.write(cog_docs.content)
-    else:
-        print("Failed to download cog.yaml documentation")
 
-    predict_docs = requests.get(PREDICT_DOCS)
-    if predict_docs.status_code == 200:
-        print("Successfully pulled down documentation for predict.py")
-        with open(os.path.join(prompts_dir, "cog_python_docs.tpl"), 'wb') as f:
-            f.write(predict_docs.content)
-    else:
-        print("Failed to download predict.py documentation")
+def download_docs():
+    def download(url, template_path):
+        resp = requests.get(url)
+        resp.raise_for_status()
+        (prompts_dir() / template_path).write_bytes(resp.content)
+
+    download(COG_DOCS_URL, "cog_yaml_docs.tpl")
+    download(PREDICT_DOCS_URL, "cog_python_docs.tpl")
+
+
+def download_torch_compatibility_matrix():
+    resp = requests.get(TORCH_COMPATIBILITY_URL)
+    resp.raise_for_status()
+    compatibility_matrix = resp.json()
+    headers = ["torch", "torchvision", "torchaudio", "cuda"]
+    with (prompts_dir() / "torch_compatibility.tpl").open("w") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        for compat in compatibility_matrix:
+            writer.writerow(
+                {
+                    "torch": compat["Torch"],
+                    "torchvision": compat["Torchvision"],
+                    "torchaudio": compat["Torchaudio"],
+                    "cuda": compat["CUDA"],
+                }
+            )
 
 
 def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]:
@@ -83,38 +100,6 @@ def load_readme_contents(repo_path: Path) -> tuple[str, str] | tuple[None, None]
         if readme_path.exists():
             return filename, readme_path.read_text()
     return None, None
-
-
-def get_packages_info(ai: AI, repo_path: Path):
-    cog_yaml_path = repo_path / "cog.yaml"
-    if cog_yaml_path.exists():
-        cog_yaml = cog_yaml_path.read_text()
-    else:
-        cog_yaml = None
-    content = ai.call(prompts.get_packages(cog_contents=cog_yaml))
-
-    # Initialize PyPI client
-    client = PyPISimple()
-    # Get package information
-    package_info = {}
-    for package in content.strip().split('\n'):
-        valid = True
-        versions = set()
-        if '==' not in package:
-            # If no version is explicitly given, query PyPi
-            try:
-                packages_info = client.get_project_page(package).packages
-                for p_info in packages_info:
-                    versions.add(p_info.version)
-            except pypi_errors.NoSuchProjectError:
-                valid = False
-        else:
-            # If version is explicitly given
-            package_version = package.split('==')[1]
-            versions.add(package_version)
-        if valid:
-            package_info[package] = sorted(versions, key=version.parse)
-    return package_info
 
 
 @retry(3)
@@ -129,10 +114,6 @@ def generate_initial(
     requirements_file = repo_path / "requirements.txt"
     if requirements_file.exists():
         files["requirements.txt"] = requirements_file.read_text()
-        package_versions = None
-    else:
-        print("Getting package information...")
-        package_versions = get_packages_info(ai, repo_path)
 
     poetry_file = repo_path / "pyproject.toml"
     if poetry_file.exists():
@@ -154,7 +135,10 @@ def generate_initial(
 
     content = ai.call(
         prompts.generate_initial(
-            files=files, tell=tell, predict_py=predict_py, cog_yaml=cog_yaml, package_versions=package_versions
+            files=files,
+            tell=tell,
+            predict_py=predict_py,
+            cog_yaml=cog_yaml,
         )
     )
     cog_yaml = file_from_gpt_response(content, "cog.yaml")
@@ -164,8 +148,7 @@ def generate_initial(
 
 
 def find_python_files(repo_path: Path) -> list[Path]:
-    python_files = [path for path in repo_path.rglob("*.py")]
-    return python_files
+    return [path for path in repo_path.rglob("*.py")]
 
 
 def file_from_gpt_response(content: str, filename: str) -> str:
@@ -217,7 +200,7 @@ def cog_predict_from_gpt_response(content: str) -> str:
     )
     matches = pattern.search(content)
     if not matches:
-        raise ValueError(f"Failed to generate cog predict")
+        raise ValueError("Failed to generate cog predict")
     return matches[1].strip()
 
 
@@ -227,10 +210,12 @@ def create_files_for_predict_command(repo_path: Path, predict_command: str) -> s
     file_inputs = re.findall(r"@([\w.]+)", predict_command)
 
     for filename in file_inputs:
-        if not os.path.exists(filename):
-            tmp_path = os.path.join("/tmp", os.path.basename(filename))
-            predict_command = predict_command.replace("@" + filename, "@" + tmp_path)
-            create_empty_file(repo_path, tmp_path)
+        if not Path(filename).exists():
+            tmp_path = Path("/tmp") / Path(filename).name
+            predict_command = predict_command.replace(
+                "@" + filename, "@" + str(tmp_path)
+            )
+            create_empty_file(repo_path, str(tmp_path))
 
     return predict_command
 
@@ -248,13 +233,20 @@ def parse_cog_predict_error(stderr: str, *, max_length=20000) -> str:
 def diagnose_error(ai: AI, predict_command: str, error: str) -> str:
     print("Diagnosing source of error: ", file=sys.stderr)
 
-    diagnose_text = ai.call(prompts.diagnose_error(predict_command=predict_command, error=truncate_error(error)))
-    package_error = ai.call(prompts.package_error(predict_command=predict_command, error=truncate_error(error)))
-    package_error = package_error == "True"
-
-    if diagnose_text not in [ERROR_PREDICT_PY, ERROR_COG_PREDICT, ERROR_COG_YAML]:
+    error_source = ai.call(
+        prompts.diagnose_error(
+            predict_command=predict_command, error=truncate_error(error)
+        )
+    )
+    if error_source not in [
+        ERROR_PREDICT_PY,
+        ERROR_COG_PREDICT,
+        ERROR_PYTHON_PACKAGES,
+        ERROR_COG_YAML,
+    ]:
         raise ValueError("Failed to diagnose error")
-    return diagnose_text, package_error
+
+    return error_source
 
 
 @retry(5)
@@ -279,18 +271,59 @@ def initialize_project(ai: AI, repo_path: Path):
     ai.clear_history()
 
 
+def clone_github_repo(repo_url: str) -> Path:
+    """Clone a GitHub repository and return the path to the cloned directory."""
+    parsed_url = urlparse(repo_url)
+    repo_name = parsed_url.path.strip("/").split("/")[-1]
+    if repo_name.endswith(".git"):
+        repo_name = repo_name[:-4]
+
+    repo_dir = Path.cwd() / repo_name
+
+    if not repo_dir.exists():
+        subprocess.run(["git", "clone", repo_url, str(repo_dir)], check=True)
+
+    os.chdir(repo_dir)
+
+    return repo_dir
+
+
+class RepoPath(click.ParamType):
+    name = "repo_path"
+
+    def convert(self, value, param, ctx):
+        if value is None:
+            return None
+
+        # Check if it's a URL
+        if value.startswith(("http://", "https://", "git://")):
+            try:
+                return clone_github_repo(value)
+            except Exception as e:
+                self.fail(f"Failed to clone repository: {str(e)}", param, ctx)
+
+        # If it's a local path
+        path = Path(value)
+        if not path.exists():
+            self.fail(f"Directory {value} does not exist", param, ctx)
+        if not path.is_dir():
+            self.fail(f"{value} is not a directory", param, ctx)
+
+        return path
+
+
 @click.command()
 @click.option(
     "-r",
     "--repo",
     default=None,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    help="Path to the ML repository (default is current directory)",
+    type=RepoPath(),
+    help="Path to the ML repository (default is current directory). If --repo is a URL to a github repository, that repository will be cloned to a subdirectory of the current directory.",
 )
 @click.option(
     "-a",
     "--ai-provider",
-    default="openai",
+    default="anthropic",
     type=click.Choice(["anthropic", "openai"], case_sensitive=False),
     help="AI provider",
 )
@@ -332,8 +365,9 @@ def autocog(
     tell: str | None,
     initialize: bool,
 ):
-    repo_path = repo or Path(os.getcwd())
-    pull_docs()
+    repo_path = repo or Path.cwd()
+    download_docs()
+    download_torch_compatibility_matrix()
     ai = AI(
         system_prompt=prompts.system,
         provider=ai_provider,
@@ -382,12 +416,8 @@ def autocog(
         )
 
         error = parse_cog_predict_error(stderr)
-        error_source, package_error = diagnose_error(ai, predict_command, error)
-        print("Error source")
-        print(error_source)
-        print("Package error")
-        print(package_error)
-        if package_error:
+        error_source = diagnose_error(ai, predict_command, error)
+        if error_source == ERROR_PYTHON_PACKAGES:
             get_packages_info(ai, repo_path)
 
         if error_source == ERROR_PREDICT_PY:

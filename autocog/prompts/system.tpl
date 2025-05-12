@@ -93,3 +93,15 @@ class Predictor(BasePredictor):
         return output_path
 
 {% file_end "predict.py" %}
+
+---
+
+Here are the compatible torch/torchvision/torchaudio/cuda versions:
+
+{% include "torch_compatibility.tpl" %}
+
+---
+
+And some miscellaneous hints:
+
+{% include "hints.tpl" %}

@@ -3,8 +3,9 @@ from pathlib import Path
 from jinja2 import nodes, Environment, FileSystemLoader
 from jinja2.ext import Extension
 
-COG_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
-PREDICT_DOCS = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
+COG_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
+PREDICT_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
+TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/pkg/config/torch_compatibility_matrix.json"
 FILE_START = "-- FILE_START: "
 FILE_END = "-- FILE_END: "
 COMMAND_START = "-- COMMAND_START"
@@ -12,6 +13,7 @@ COMMAND_END = "-- COMMAND_END"
 ERROR_COG_PREDICT = "cog_predict"
 ERROR_PREDICT_PY = "predict.py"
 ERROR_COG_YAML = "cog.yaml"
+ERROR_PYTHON_PACKAGES = "python_packages"
 
 
 class FileStartExtension(Extension):
@@ -48,6 +50,7 @@ def render(template_name, **kwargs):
     kwargs["ERROR_COG_PREDICT"] = ERROR_COG_PREDICT
     kwargs["ERROR_COG_YAML"] = ERROR_COG_YAML
     kwargs["ERROR_PREDICT_PY"] = ERROR_PREDICT_PY
+    kwargs["ERROR_PYTHON_PACKAGES"] = ERROR_PYTHON_PACKAGES
 
     return template.render(**kwargs)
 
@@ -61,7 +64,6 @@ def generate_initial(
     tell: str | None,
     predict_py: str | None,
     cog_yaml: str | None,
-    package_versions: dict[set] | None,
 ) -> str:
     return render(
         "generate_initial",
@@ -69,16 +71,11 @@ def generate_initial(
         tell=tell,
         predict_py=predict_py,
         cog_yaml=cog_yaml,
-        package_versions=package_versions
     )
 
 
 def diagnose_error(predict_command: str, error: str) -> str:
     return render("diagnose_error", predict_command=predict_command, error=error)
-
-
-def package_error(predict_command: str, error: str) -> str:
-    return render("package_error", predict_command=predict_command, error=error)
 
 
 def get_packages(cog_contents: str | None) -> str:

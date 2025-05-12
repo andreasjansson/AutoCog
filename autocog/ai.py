@@ -37,7 +37,7 @@ class AI:
         if self.provider == "openai":
             return "gpt-4o"
         elif self.provider == "anthropic":
-            return "claude-3-5-sonnet-20240620"
+            return "claude-3-5-sonnet-20241022"
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
