@@ -1,39 +1,70 @@
+import subprocess
+import requests
 import os
 from pathlib import Path
-from jinja2 import nodes, Environment, FileSystemLoader
-from jinja2.ext import Extension
+import humanize
+from jinja2 import Environment, FileSystemLoader
 
+COG_GETTING_STARTED_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/docs/getting-started-own-model.md"
 COG_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
 PREDICT_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
-TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/pkg/config/torch_compatibility_matrix.json"
-FILE_START = "-- FILE_START: "
-FILE_END = "-- FILE_END: "
-COMMAND_START = "-- COMMAND_START"
-COMMAND_END = "-- COMMAND_END"
-ERROR_COG_PREDICT = "cog_predict"
-ERROR_PREDICT_PY = "predict.py"
-ERROR_COG_YAML = "cog.yaml"
-ERROR_PYTHON_PACKAGES = "python_packages"
+#TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/pkg/config/torch_compatibility_matrix.json"
+TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/torch-2.7.0/pkg/config/torch_compatibility_matrix.json"
 
 
-class FileStartExtension(Extension):
-    tags = {"file_start"}
-
-    def parse(self, parser):
-        lineno = next(parser.stream).lineno
-        filename = parser.parse_expression()
-        return nodes.Output([nodes.TemplateData(FILE_START), filename]).set_lineno(
-            lineno
-        )
+def prompts_dir() -> Path:
+    base_dir = Path(__file__).parent
+    return base_dir / "prompts"
 
 
-class FileEndExtension(Extension):
-    tags = {"file_end"}
+def assets_dir() -> Path:
+    base_dir = Path(__file__).parent
+    return base_dir / "assets"
 
-    def parse(self, parser):
-        lineno = next(parser.stream).lineno
-        filename = parser.parse_expression()
-        return nodes.Output([nodes.TemplateData(FILE_END), filename]).set_lineno(lineno)
+
+def download(url, template_path):
+    resp = requests.get(url)
+    resp.raise_for_status()
+    (prompts_dir() / template_path).write_bytes(resp.content)
+
+
+def cog_predict_help() -> str:
+    result = subprocess.run(
+        ["cog", "predict", "--help"], capture_output=True, text=True, check=True
+    )
+    return result.stdout
+
+
+def generate_docs():
+    download(COG_GETTING_STARTED_DOCS_URL, "cog_getting_started_docs.tpl")
+    download(COG_DOCS_URL, "cog_yaml_docs.tpl")
+    download(PREDICT_DOCS_URL, "cog_python_docs.tpl")
+    download(TORCH_COMPATIBILITY_URL, "torch_compatibility.tpl")
+    (prompts_dir() / "cog_predict_help.tpl").write_text(cog_predict_help())
+
+
+def list_assets() -> list[tuple[str, str]]:
+    """
+    Recursively iterate over the files in assets_dir() and return a list of file names
+    and human-readable file sizes (e.g. "11MB"), sorted by file name alphabetically.
+    """
+    result = []
+    assets_path = assets_dir()
+
+    # Check if assets directory exists
+    if not assets_path.exists():
+        return []
+
+    # Recursively iterate through all files
+    for path in sorted(assets_path.glob("**/*")):
+        if path.is_file():
+            # Get file size in bytes and convert to human-readable format
+            size_bytes = path.stat().st_size
+            size_str = humanize.naturalsize(size_bytes)
+
+            result.append((str(path), size_str))
+
+    return result
 
 
 def render(template_name, **kwargs):
@@ -41,60 +72,14 @@ def render(template_name, **kwargs):
     prompts_dir = current_dir / "prompts"
     env = Environment(
         loader=FileSystemLoader(prompts_dir),
-        extensions=[FileStartExtension, FileEndExtension],
     )
     template = env.get_template(template_name + ".tpl")
 
-    kwargs["command_end"] = COMMAND_END
-    kwargs["command_start"] = COMMAND_START
-    kwargs["ERROR_COG_PREDICT"] = ERROR_COG_PREDICT
-    kwargs["ERROR_COG_YAML"] = ERROR_COG_YAML
-    kwargs["ERROR_PREDICT_PY"] = ERROR_PREDICT_PY
-    kwargs["ERROR_PYTHON_PACKAGES"] = ERROR_PYTHON_PACKAGES
+    kwargs["assets"] = list_assets()
 
     return template.render(**kwargs)
 
 
-def order_paths(paths: list[Path], readme_contents: str | None) -> str:
-    return render("order_paths", paths=paths, readme_contents=readme_contents)
-
-
-def generate_initial(
-    files: dict[str, str],
-    tell: str | None,
-    predict_py: str | None,
-    cog_yaml: str | None,
-) -> str:
-    return render(
-        "generate_initial",
-        files=files,
-        tell=tell,
-        predict_py=predict_py,
-        cog_yaml=cog_yaml,
-    )
-
-
-def diagnose_error(predict_command: str, error: str) -> str:
-    return render("diagnose_error", predict_command=predict_command, error=error)
-
-
-def get_packages(cog_contents: str | None) -> str:
-    return render("get_packages", cog_contents=cog_contents)
-
-
-def get_packages_versions(packages: str | None) -> str:
-    return render("get_packages_versions", packages=packages)
-
-
-system = render("system")
-cog_predict = render("cog_predict")
-fix_predict_py = render("fix_predict_py")
-fix_cog_yaml = render("fix_cog_yaml")
-
-
-def file_start(filename):
-    return f"-- FILE_START: {filename}"
-
-
-def file_end(filename):
-    return f"-- FILE_END: {filename}"
+def make_system_prompt():
+    generate_docs()
+    return render("system")

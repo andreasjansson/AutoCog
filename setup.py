@@ -13,14 +13,13 @@ setup(
     url="https://github.com/andreasjansson/AutoCog",
     packages=find_packages(),
     install_requires=[
-        "openai",
-        "click",
-        "Pillow",
-        "pydub",
-        "opencv-python",
-        "anthropic",
-        "jinja2",
-        "pypi-simple"
+        "click==8.2.0",
+        "anthropic==0.51.0",
+        "jinja2==3.1.6",
+        "tavily-python==0.7.2",
+        "humanize==4.12.3",
+        "replicate==1.0.6",
+        "toololol",
     ],
     entry_points={
         "console_scripts": [
