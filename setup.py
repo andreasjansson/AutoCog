@@ -19,7 +19,7 @@ setup(
         "tavily-python==0.7.2",
         "humanize==4.12.3",
         "replicate==1.0.6",
-        "toololol",
+        "toololo==0.1.0",
     ],
     entry_points={
         "console_scripts": [

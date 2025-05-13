@@ -8,8 +8,8 @@ from jinja2 import Environment, FileSystemLoader
 COG_GETTING_STARTED_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/docs/getting-started-own-model.md"
 COG_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/yaml.md"
 PREDICT_DOCS_URL = "https://raw.githubusercontent.com/replicate/cog/main/docs/python.md"
-#TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/pkg/config/torch_compatibility_matrix.json"
-TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/torch-2.7.0/pkg/config/torch_compatibility_matrix.json"
+TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/main/pkg/config/torch_compatibility_matrix.json"
+#TORCH_COMPATIBILITY_URL = "https://raw.githubusercontent.com/replicate/cog/refs/heads/torch-2.7.0/pkg/config/torch_compatibility_matrix.json"
 
 
 def prompts_dir() -> Path:

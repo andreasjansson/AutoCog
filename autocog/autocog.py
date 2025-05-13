@@ -4,9 +4,9 @@ import click
 import os
 import subprocess
 import anthropic
-import toololol
-from toololol import log
-from toololol.types import ToolResult
+import toololo
+from toololo import log
+from toololo.types import ToolResult
 
 from . import prompts
 from .tools import fs, cog, pypi, tavily, media
@@ -140,6 +140,7 @@ def autocog(
         tavily.web_extract,
         media.describe_image,
         media.transcribe_speech,
+        media.describe_audio,
     ]
 
     prompt = "Convert the repo in the current working directory to Cog by writing a predict.py and cog.yaml file and iterating until it works."
@@ -160,7 +161,7 @@ def autocog(
         }
     ]
 
-    for output in toololol.run(
+    for output in toololo.run(
         client=client,
         messages=messages,
         model="claude-3-7-sonnet-latest",
