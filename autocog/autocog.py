@@ -1,8 +1,7 @@
-from urllib.parse import urlparse
+import traceback
 from pathlib import Path
 import click
 import os
-import subprocess
 import anthropic
 import toololo
 from toololo import log
@@ -10,6 +9,8 @@ from toololo.types import ToolResult
 
 from . import prompts
 from .tools import fs, cog, pypi, tavily, media
+from .webhook import WebhookSender
+from . import git
 
 
 def initialize_project(repo_path: Path):
@@ -19,21 +20,6 @@ def initialize_project(repo_path: Path):
         cog_yaml_path.unlink()
     if predict_py_path.exists():
         predict_py_path.unlink()
-
-
-def clone_github_repo(repo_url: str) -> Path:
-    """Clone a GitHub repository and return the path to the cloned directory."""
-    parsed_url = urlparse(repo_url)
-    repo_name = parsed_url.path.strip("/").split("/")[-1]
-    if repo_name.endswith(".git"):
-        repo_name = repo_name[:-4]
-
-    repo_dir = Path.cwd() / repo_name
-
-    if not repo_dir.exists():
-        subprocess.run(["git", "clone", repo_url, str(repo_dir)], check=True)
-
-    return repo_dir
 
 
 class RepoPath(click.ParamType):
@@ -46,7 +32,7 @@ class RepoPath(click.ParamType):
         # Check if it's a URL
         if value.startswith(("http://", "https://", "git://")):
             try:
-                return clone_github_repo(value)
+                return git.clone(value)
             except Exception as e:
                 self.fail(f"Failed to clone repository: {str(e)}", param, ctx)
 
@@ -97,6 +83,21 @@ class RepoPath(click.ParamType):
     count=True,
     help="Increase verbosity (can be used multiple times: -v, -vv, -vvv)",
 )
+@click.option("--github-token", help="GitHub personal access token.")
+@click.option("--github-app-id", help="GitHub App ID.")
+@click.option("--github-app-key-path", help="Path to GitHub App private key file.")
+@click.option("--github-app-key", help="GitHub App private key content.")
+@click.option("--github-installation-id", help="GitHub App installation ID.")
+@click.option(
+    "--push-repo",
+    help="Name for the GitHub repository to create in the format <owner>/<name>. If omitted, no github repo is created",
+)
+@click.option("--replicate-cog-token", help="Token to push Cog models to Replicate")
+@click.option(
+    "--push-model",
+    help="Name for the Replicate model to create in the format <owner>/<name>. If omitted, no Replicate model is pushed",
+)
+@click.option("--webhook-uri", help="URI where webhook notifications will be sent.")
 def autocog(
     repo: Path | None,
     max_iterations: int,
@@ -104,6 +105,15 @@ def autocog(
     tell: str | None,
     initialize: bool,
     verbose: int,
+    github_token: str | None,
+    github_app_id: str | None,
+    github_app_key_path: str | None,
+    github_app_key: str | None,
+    github_installation_id: str | None,
+    push_repo: str | None,
+    push_model: str | None,
+    replicate_cog_token: str | None,
+    webhook_uri: str | None,
 ):
     if verbose == 0:
         log_level = log.INFO
@@ -125,7 +135,16 @@ def autocog(
     if initialize:
         initialize_project(repo_path)
 
+    if push_repo and git.is_dirty():
+        git.commit("Before AutoCog")
+
     log.info(f"Running autocog in {repo_path}")
+
+    # Initialize webhook sender if URI is provided
+    webhook_sender = None
+    if webhook_uri:
+        webhook_sender = WebhookSender(webhook_uri=webhook_uri)
+        webhook_sender.send("starting")
 
     client = anthropic.Client()
 
@@ -161,19 +180,53 @@ def autocog(
         }
     ]
 
-    for output in toololo.run(
-        client=client,
-        messages=messages,
-        model="claude-3-7-sonnet-latest",
-        tools=tools,
-        system_prompt=prompts.make_system_prompt(),
-        max_iterations=max_iterations,
-        # history_file=Path("autocog-history.jsonlines"),
-    ):
-        if isinstance(output, ToolResult):
-            log.v(str(output) + "\n\n")
-        else:
-            log.info(truncate_string(str(output), 250) + "\n\n")
+    final_error = None
+
+    try:
+        for output in toololo.run(
+            client=client,
+            messages=messages,
+            model="claude-3-7-sonnet-latest",
+            tools=tools,
+            system_prompt=prompts.make_system_prompt(),
+            max_iterations=max_iterations,
+        ):
+            if webhook_sender:
+                webhook_sender.send("output", output)
+
+            if isinstance(output, ToolResult):
+                log.v(str(output) + "\n\n")
+            else:
+                log.info(truncate_string(str(output), 250) + "\n\n")
+
+    except Exception as e:
+        final_error = str(e)
+        log.error(f"Error during autocog execution: {final_error}")
+        if webhook_sender:
+            webhook_sender.send("error", traceback.format_exc())
+        return
+
+    if push_repo:
+        log.info("Prediction was successful! Pushing to GitHub...")
+        git.add(["predict.py", "cog.yaml"])
+        git.commit("AutoCog added predict.py and cog.yaml")
+        repo_url = git.push(
+            repo_name=push_repo,
+            auth=git.GitHubAuth(
+                github_token=github_token,
+                github_app_id=github_app_id,
+                github_app_key=github_app_key,
+                github_app_key_path=github_app_key_path,
+                github_installation_id=github_installation_id,
+            ),
+        )
+        log.info(f"Successfully pushed to GitHub: {repo_url}")
+
+    # if push_model:
+    #     cog.push(replicate_cog_token, push_model)
+
+    if webhook_sender:
+        webhook_sender.send("complete")
 
 
 def truncate_string(text: str, max_length: int, suffix: str = "...") -> str:
