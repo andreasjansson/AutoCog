@@ -219,7 +219,7 @@ def autocog(
             if isinstance(output, ToolResult):
                 log.v(str(output) + "\n\n")
             else:
-                log.info(truncate_string(str(output), 250) + "\n\n")
+                log.info(truncate_string(str(output), 10000) + "\n\n")
 
     except Exception as e:
         final_error = str(e)

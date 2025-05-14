@@ -56,6 +56,7 @@ def write_files(
     """
     assert isinstance(python_requirements, list)
     assert isinstance(system_packages, list)
+    assert python_version in ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     log.info(f"# predict.py:\n{predict_py_contents}")
 
