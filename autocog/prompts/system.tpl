@@ -66,7 +66,7 @@ These are the Cog YAML docs for cog.yaml:
 
 When running `cog predict`, some models may require file inputs (e.g. `cog predict -i input_image=@image.jpg`). In those cases, you have access to the following local assets:
 
-{% for path, size in assets %}
+{% for (path, size) in assets %}
 * {{ path }} ({{ size }})
 {% endfor %}
 
