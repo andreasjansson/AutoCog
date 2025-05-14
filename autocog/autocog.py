@@ -148,6 +148,8 @@ def autocog(
     else:
         replicate_model = None
 
+    cog.install_cog()
+
     if initialize:
         initialize_project(repo_path)
 

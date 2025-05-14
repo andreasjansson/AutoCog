@@ -1,7 +1,11 @@
+import os
 import yaml
 from pathlib import Path
 import sys
 import subprocess
+import platform
+import shutil
+from urllib.request import urlretrieve
 
 from toololo import log
 
@@ -148,3 +152,23 @@ def push(model_name: str) -> None:
         raise RuntimeError(f"Failed to push model to Replicate")
 
     log.info(f"Successfully pushed model to Replicate as r8.im/{model_name}")
+
+
+def is_cog_installed() -> bool:
+    return shutil.which("cog") is not None
+
+
+def install_cog() -> None:
+    if is_cog_installed():
+        return
+
+    system = platform.system()
+    machine = platform.machine()
+
+    cog_path = "/usr/local/bin/cog"
+    url = f"https://github.com/replicate/cog/releases/latest/download/cog_{system}_{machine}"
+
+    log.info("Installing Cog...")
+
+    urlretrieve(url, cog_path)
+    os.chmod(cog_path, 0o755)
