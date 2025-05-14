@@ -54,6 +54,9 @@ def write_files(
         python_version: Python version to use (e.g. "3.10")
         cuda: CUDA version to use (e.g. "11.8.0"), or None for CPU-only
     """
+    assert isinstance(python_requirements, list)
+    assert isinstance(system_packages, list)
+
     log.info(f"# predict.py:\n{predict_py_contents}")
 
     # Write predict.py
