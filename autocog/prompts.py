@@ -80,6 +80,6 @@ def render(template_name, **kwargs):
     return template.render(**kwargs)
 
 
-def make_system_prompt():
+def make_system_prompt(push_to_replicate):
     generate_docs()
-    return render("system")
+    return render("system", push_to_replicate=push_to_replicate)

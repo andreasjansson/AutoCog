@@ -8,18 +8,20 @@ from toololo import log
 from toololo.types import ToolResult
 
 from . import prompts
-from .tools import fs, cog, pypi, tavily, media
+from . import fs, cog, pypi, tavily, media
+from .replicate_model import ReplicateModel
 from .webhook import WebhookSender
 from . import git
 
 
 def initialize_project(repo_path: Path):
-    cog_yaml_path = repo_path / "cog.yaml"
-    predict_py_path = repo_path / "predict.py"
-    if cog_yaml_path.exists():
-        cog_yaml_path.unlink()
-    if predict_py_path.exists():
-        predict_py_path.unlink()
+    for path in [
+        repo_path / "cog.yaml",
+        repo_path / "predict.py",
+        repo_path / "cog_requirements.txt",
+    ]:
+        if path.exists():
+            path.unlink()
 
 
 class RepoPath(click.ParamType):
@@ -92,11 +94,16 @@ class RepoPath(click.ParamType):
     "--push-repo",
     help="Name for the GitHub repository to create in the format <owner>/<name>. If omitted, no github repo is created",
 )
-@click.option("--replicate-cog-token", help="Token to push Cog models to Replicate")
 @click.option(
-    "--push-model",
+    "--model",
+    "model_name",
     help="Name for the Replicate model to create in the format <owner>/<name>. If omitted, no Replicate model is pushed",
 )
+@click.option(
+    "--model-hardware",
+    help="Hardware for the Replicate model. Required if --model is specified",
+)
+@click.option("--replicate-cog-token", help="Token to push Cog models to Replicate")
 @click.option("--webhook-uri", help="URI where webhook notifications will be sent.")
 def autocog(
     repo: Path | None,
@@ -111,7 +118,8 @@ def autocog(
     github_app_key: str | None,
     github_installation_id: str | None,
     push_repo: str | None,
-    push_model: str | None,
+    model_name: str | None,
+    model_hardware: str | None,
     replicate_cog_token: str | None,
     webhook_uri: str | None,
 ):
@@ -131,6 +139,14 @@ def autocog(
         os.chdir(repo_path)
     else:
         repo_path = Path.cwd()
+
+    if model_name:
+        assert model_hardware, "--model-hardware is required if --model is specified"
+        replicate_model = ReplicateModel(
+            model_name, model_hardware, replicate_cog_token
+        )
+    else:
+        replicate_model = None
 
     if initialize:
         initialize_project(repo_path)
@@ -161,6 +177,8 @@ def autocog(
         media.transcribe_speech,
         media.describe_audio,
     ]
+    if replicate_model:
+        tools += [replicate_model.cog_push, replicate_model.predict]
 
     prompt = "Convert the repo in the current working directory to Cog by writing a predict.py and cog.yaml file and iterating until it works."
 
@@ -168,7 +186,7 @@ def autocog(
         prompt += "\nNote that there is an existing cog.yaml/predict.py already."
 
     if tell:
-        prompt += f"\n[Important] Follow these additional instructions: {tell}"
+        prompt += f"\n[IMPORTANT] You must follow these additional overriding instructions: {tell}"
 
     if predict_command:
         prompt += f"When running `cog predict` to test the Cog model, use this cog predict command: `{predict_command}`"
@@ -188,7 +206,9 @@ def autocog(
             messages=messages,
             model="claude-3-7-sonnet-latest",
             tools=tools,
-            system_prompt=prompts.make_system_prompt(),
+            system_prompt=prompts.make_system_prompt(
+                push_to_replicate=replicate_model is not None
+            ),
             max_iterations=max_iterations,
         ):
             if webhook_sender:
@@ -221,9 +241,6 @@ def autocog(
             ),
         )
         log.info(f"Successfully pushed to GitHub: {repo_url}")
-
-    # if push_model:
-    #     cog.push(replicate_cog_token, push_model)
 
     if webhook_sender:
         webhook_sender.send("complete")

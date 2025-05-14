@@ -1,7 +1,6 @@
 ## cog.yaml
 
-* You usually don't need to add the working repository to the list of python packages. If you're doing that you're probably doing something wrong. This also includes adding `-e .` to `python_packages` in cog.yaml. Don't do that, since Cog doesn't have access to the working directory at build-time. Instead add directories to sys.modules if you need to.
-* Some of the cog documentation claims that you should write requirements.txt instead of python_packages. Ignore that and use the old-style python_packages instead.
+* You usually don't need to add the working repository to the list of python packages. If you're doing that you're probably doing something wrong. This also includes adding `-e .` in `python_requirements`. Don't do that, since Cog doesn't have access to the working directory at build-time. Instead add directories to sys.modules if you need to.
 * Don't forget to indent cog.yaml properly!
 * Don't include the 'image' field in cog.yaml
 
