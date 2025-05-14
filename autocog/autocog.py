@@ -202,15 +202,20 @@ def autocog(
 
     final_error = None
 
+    system_prompt = prompts.make_system_prompt(
+        push_to_replicate=replicate_model is not None
+    )
+
+    log.vv("System prompt:")
+    log.vv(system_prompt)
+
     try:
         for output in toololo.run(
             client=client,
             messages=messages,
             model="claude-3-7-sonnet-latest",
             tools=tools,
-            system_prompt=prompts.make_system_prompt(
-                push_to_replicate=replicate_model is not None
-            ),
+            system_prompt=system_prompt,
             max_iterations=max_iterations,
         ):
             if webhook_sender:

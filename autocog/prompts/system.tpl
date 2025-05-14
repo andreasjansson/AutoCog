@@ -42,6 +42,8 @@ Short speech:
 
 {% endif %}
 
+Note that you only have access to the write_files function that can only write predict.py and cog.yaml/cog_requirements.txt. You're not able to edit any other files in the repository.
+
 # Cog docs
 
 Getting started with Cog docs:
