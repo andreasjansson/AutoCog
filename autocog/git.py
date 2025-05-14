@@ -1,11 +1,9 @@
 from pathlib import Path
 import subprocess
 from dataclasses import dataclass
-import os
 from github import Github, GithubIntegration
 from github import Github
 
-from toololo import log
 
 
 @dataclass
@@ -37,25 +35,34 @@ def commit(message: str) -> None:
     subprocess.run(["git", "commit", "-a", "-m", message], check=True)
 
 
-def clone(repo_url: str) -> str:
+def clone(repo_url: str, target_dir: str | None = None) -> Path:
     """
-    Clone a git repository
+    Clone a repository from a URL. If target directory already exists, skip cloning.
 
     Args:
-        repo_url: URL of the repository to clone
+        repo_url: URL of the git repository to clone
+        target_dir: Optional target directory name (derived from URL if not provided)
 
     Returns:
-        Path to the cloned repository
+        Path to the cloned repo
     """
-    # Extract repo name from URL for the target directory
-    repo_name = repo_url.split("/")[-1]
-    if repo_name.endswith(".git"):
-        repo_name = repo_name[:-4]
+    # If target_dir not specified, use the repo name from the URL
+    if not target_dir:
+        repo_name = Path(repo_url).name
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+        target_dir = repo_name
+
+    target_path = Path(target_dir)
+
+    # Check if the directory already exists and contains a .git folder
+    if target_path.exists() and (target_path / ".git").exists():
+        print(f"Repository already exists at {target_path}, skipping clone")
+        return target_path
 
     # Clone the repository
-    subprocess.run(["git", "clone", repo_url, repo_name], check=True)
-
-    return os.path.abspath(repo_name)
+    subprocess.run(["git", "clone", repo_url, str(target_dir)], check=True)
+    return target_path
 
 
 def push(repo_name: str, auth: GitHubAuth) -> str:
@@ -71,8 +78,9 @@ def push(repo_name: str, auth: GitHubAuth) -> str:
         URL of the created repository
     """
     # Validate the GitHub App authentication parameters
-    if not (auth.app_id and auth.installation_id and
-           (auth.app_key or auth.app_key_path)):
+    if not (
+        auth.app_id and auth.installation_id and (auth.app_key or auth.app_key_path)
+    ):
         raise ValueError("GitHub App credentials are required for pushing to GitHub")
 
     # Get private key content
@@ -112,11 +120,12 @@ def push(repo_name: str, auth: GitHubAuth) -> str:
     remote_url = f"https://x-access-token:{access_token}@github.com/{repo_name}.git"
 
     # Check if remote exists
-    remote_exists = subprocess.run(
-        ["git", "remote", "get-url", "origin"],
-        capture_output=True,
-        check=False
-    ).returncode == 0
+    remote_exists = (
+        subprocess.run(
+            ["git", "remote", "get-url", "origin"], capture_output=True, check=False
+        ).returncode
+        == 0
+    )
 
     if remote_exists:
         # Update the existing remote
