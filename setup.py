@@ -20,6 +20,7 @@ setup(
         "humanize==4.12.3",
         "replicate==1.0.6",
         "toololo==0.1.0",
+        "PyGithub==2.6.1",
     ],
     entry_points={
         "console_scripts": [

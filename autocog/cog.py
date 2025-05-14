@@ -86,6 +86,45 @@ def write_files(
     cog_yaml_content = Path("cog.yaml").read_text()
     log.info(f"# cog.yaml:\n{cog_yaml_content}")
 
+    add_lines_to_dotfile(".gitignore", [".cog"])
+    add_lines_to_dotfile(
+        ".dockerignore",
+        [
+            "**/.git",
+            "**/.github",
+            "**/.gitignore",
+            ".python-version",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            "/venv",
+        ],
+    )
+
+
+def add_lines_to_dotfile(filename: str, lines_to_add: list[str]) -> None:
+    path = Path(filename)
+
+    # Read existing content if file exists
+    existing_lines = []
+    if path.exists():
+        existing_lines = path.read_text().splitlines()
+
+    # Only add lines that aren't already in the file
+    new_lines = [line for line in lines_to_add if line not in existing_lines]
+
+    if new_lines:
+        # If file exists, append to it; otherwise create it
+        if path.exists():
+            with path.open("a") as f:
+                # Add a newline before appending if the file doesn't end with one
+                if existing_lines and existing_lines[-1]:
+                    f.write("\n")
+                f.write("\n".join(new_lines) + "\n")
+        else:
+            path.write_text("\n".join(new_lines) + "\n")
+
 
 def login(replicate_token: str) -> None:
     log.info("Logging in to Replicate...")

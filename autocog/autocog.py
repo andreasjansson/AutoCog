@@ -85,11 +85,12 @@ class RepoPath(click.ParamType):
     count=True,
     help="Increase verbosity (can be used multiple times: -v, -vv, -vvv)",
 )
-@click.option("--github-token", help="GitHub personal access token.")
-@click.option("--github-app-id", help="GitHub App ID.")
-@click.option("--github-app-key-path", help="Path to GitHub App private key file.")
+@click.option("--github-app-id", type=int, help="GitHub App ID.")
+@click.option(
+    "--github-app-key-path", type=Path, help="Path to GitHub App private key file."
+)
 @click.option("--github-app-key", help="GitHub App private key content.")
-@click.option("--github-installation-id", help="GitHub App installation ID.")
+@click.option("--github-installation-id", type=int, help="GitHub App installation ID.")
 @click.option(
     "--push-repo",
     help="Name for the GitHub repository to create in the format <owner>/<name>. If omitted, no github repo is created",
@@ -112,11 +113,10 @@ def autocog(
     tell: str | None,
     initialize: bool,
     verbose: int,
-    github_token: str | None,
-    github_app_id: str | None,
-    github_app_key_path: str | None,
+    github_app_id: int | None,
+    github_app_key_path: Path | None,
     github_app_key: str | None,
-    github_installation_id: str | None,
+    github_installation_id: int | None,
     push_repo: str | None,
     model_name: str | None,
     model_hardware: str | None,
@@ -228,16 +228,24 @@ def autocog(
 
     if push_repo:
         log.info("Prediction was successful! Pushing to GitHub...")
-        git.add(["predict.py", "cog.yaml"])
-        git.commit("AutoCog added predict.py and cog.yaml")
+        git.add(
+            [
+                "predict.py",
+                "cog.yaml",
+                "cog_requirements.txt",
+                ".gitignore",
+                ".dockerignore",
+            ]
+        )
+        if git.is_dirty():
+            git.commit("AutoCog added predict.py and cog.yaml")
         repo_url = git.push(
             repo_name=push_repo,
             auth=git.GitHubAuth(
-                github_token=github_token,
-                github_app_id=github_app_id,
-                github_app_key=github_app_key,
-                github_app_key_path=github_app_key_path,
-                github_installation_id=github_installation_id,
+                app_id=github_app_id,
+                app_key=github_app_key,
+                app_key_path=github_app_key_path,
+                installation_id=github_installation_id,
             ),
         )
         log.info(f"Successfully pushed to GitHub: {repo_url}")
