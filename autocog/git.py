@@ -5,13 +5,11 @@ from github import Github, GithubIntegration
 from github import Github
 
 
-
 @dataclass
 class GitHubAuth:
-    app_id: int | None = None
-    app_key: str | None = None
-    app_key_path: Path | None = None
-    installation_id: int | None = None
+    app_id: int
+    installation_id: int
+    app_key: str
 
 
 def is_dirty() -> bool:
@@ -77,23 +75,8 @@ def push(repo_name: str, auth: GitHubAuth) -> str:
     Returns:
         URL of the created repository
     """
-    # Validate the GitHub App authentication parameters
-    if not (
-        auth.app_id and auth.installation_id and (auth.app_key or auth.app_key_path)
-    ):
-        raise ValueError("GitHub App credentials are required for pushing to GitHub")
-
-    # Get private key content
-    if auth.app_key:
-        private_key = auth.app_key
-    elif auth.app_key_path:
-        with open(auth.app_key_path, "r") as key_file:
-            private_key = key_file.read()
-    else:
-        raise ValueError("Either app_key or app_key_path must be provided")
-
     # Create GitHub integration instance
-    integration = GithubIntegration(auth.app_id, private_key)
+    integration = GithubIntegration(auth.app_id, auth.app_key)
 
     # Get an access token for the installation
     access_token = integration.get_access_token(auth.installation_id).token
@@ -112,6 +95,7 @@ def push(repo_name: str, auth: GitHubAuth) -> str:
     try:
         principal.get_repo(name)
     except:
+        # TODO: this probably doesn't work for user accounts?
         principal.create_repo(name, private=True)
 
     repo_url = f"https://github.com/{repo_name}"

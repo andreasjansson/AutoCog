@@ -1,3 +1,4 @@
+import base64
 import traceback
 from pathlib import Path
 import click
@@ -86,11 +87,10 @@ class RepoPath(click.ParamType):
     help="Increase verbosity (can be used multiple times: -v, -vv, -vvv)",
 )
 @click.option("--github-app-id", type=int, help="GitHub App ID.")
-@click.option(
-    "--github-app-key-path", type=Path, help="Path to GitHub App private key file."
-)
-@click.option("--github-app-key", help="GitHub App private key content.")
 @click.option("--github-installation-id", type=int, help="GitHub App installation ID.")
+@click.option(
+    "--github-app-key-b64", help="GitHub App private key contents, base64-encoded."
+)
 @click.option(
     "--push-repo",
     help="Name for the GitHub repository to create in the format <owner>/<name>. If omitted, no github repo is created",
@@ -106,6 +106,9 @@ class RepoPath(click.ParamType):
 )
 @click.option("--replicate-cog-token", help="Token to push Cog models to Replicate")
 @click.option("--webhook-uri", help="URI where webhook notifications will be sent.")
+# TODO: options for --replicate-api-token and --anthropic-api-key so
+# we're consistently relying on options and not a mix of options and
+# environment variables.
 def autocog(
     repo: Path | None,
     max_iterations: int,
@@ -114,9 +117,8 @@ def autocog(
     initialize: bool,
     verbose: int,
     github_app_id: int | None,
-    github_app_key_path: Path | None,
-    github_app_key: str | None,
     github_installation_id: int | None,
+    github_app_key_b64: str | None,
     push_repo: str | None,
     model_name: str | None,
     model_hardware: str | None,
@@ -147,6 +149,25 @@ def autocog(
         )
     else:
         replicate_model = None
+
+    if push_repo:
+        assert github_app_id is not None, (
+            "--github-app-id must be set if --push-repo is set"
+        )
+        assert github_app_key_b64 is not None, (
+            "--github-app-key-b64 must be set if --push-repo is set"
+        )
+        assert github_installation_id is not None, (
+            "--github-installation-id must be set if --push-repo is set"
+        )
+        github_app_key = base64.b64decode(github_app_key_b64).decode("utf-8")
+        github_auth = git.GitHubAuth(
+            app_id=github_app_id,
+            installation_id=github_installation_id,
+            app_key=github_app_key,
+        )
+    else:
+        github_auth = None
 
     cog.install_cog()
 
@@ -234,7 +255,7 @@ def autocog(
         return
 
     if push_repo:
-        log.info("Prediction was successful! Pushing to GitHub...")
+        log.info("Pushing to GitHub...")
         git.add(
             [
                 "predict.py",
@@ -246,14 +267,11 @@ def autocog(
         )
         if git.is_dirty():
             git.commit("AutoCog added predict.py and cog.yaml")
+
+        assert github_auth
         repo_url = git.push(
             repo_name=push_repo,
-            auth=git.GitHubAuth(
-                app_id=github_app_id,
-                app_key=github_app_key,
-                app_key_path=github_app_key_path,
-                installation_id=github_installation_id,
-            ),
+            auth=github_auth,
         )
         log.info(f"Successfully pushed to GitHub: {repo_url}")
 
